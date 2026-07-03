@@ -2,39 +2,79 @@
 
 from __future__ import annotations
 
+import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from conformal_rag.models import ScoringBreakdown
 from conformal_rag.llm import LLMClient, LLMConfig
 
 
+_nli_cache: dict = {}
+
+
 @dataclass
 class NLIScorer:
-    """NLI ensemble scorer using DeBERTa-v3."""
-
-    primary_model: str = "cross-encoder/nli-deberta-v3-base"
+    primary_model: str = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
     fallback_model: str = "cross-encoder/nli-deberta-v3-small"
     confidence_threshold: float = 0.7
+    _tokenizer: Optional[object] = field(default=None, repr=False)
+    _model: Optional[object] = field(default=None, repr=False)
+    _loaded: bool = field(default=False, repr=False)
+
+    def _load_model(self):
+        if self._loaded:
+            return
+        if "tokenizer" in _nli_cache:
+            self._tokenizer = _nli_cache["tokenizer"]
+            self._model = _nli_cache["model"]
+            self._loaded = True
+            return
+        try:
+            self._tokenizer = AutoTokenizer.from_pretrained(self.primary_model)
+            self._model = AutoModelForSequenceClassification.from_pretrained(self.primary_model)
+            self._model.eval()
+        except Exception:
+            self._tokenizer = AutoTokenizer.from_pretrained(self.fallback_model)
+            self._model = AutoModelForSequenceClassification.from_pretrained(self.fallback_model)
+            self._model.eval()
+        _nli_cache["tokenizer"] = self._tokenizer
+        _nli_cache["model"] = self._model
+        self._loaded = True
 
     def score(self, query: str, context: str, response: str) -> float:
-        """Score faithfulness using NLI ensemble.
-
-        Returns:
-            Float 0-1, higher = more faithful.
-        """
-        # In production, this loads the actual model
-        # For now, return a placeholder
+        self._load_model()
         return self._predict(query, context, response)
 
     def _predict(self, query: str, context: str, response: str) -> float:
-        """Run NLI prediction. Override in tests."""
-        # Placeholder - real implementation uses transformers
-        return 0.5
+        claims = self._decompose(response)
+        if not claims:
+            return 0.5
+        scores = [self._score_claim(context, claim) for claim in claims]
+        return sum(scores) / len(scores)
+
+    def _decompose(self, text: str) -> list:
+        sentences = re.split(r'[.!?]+', text)
+        return [s.strip() for s in sentences if len(s.strip()) > 10]
+
+    def _score_claim(self, context: str, claim: str) -> float:
+        self._load_model()
+        inputs = self._tokenizer(
+            context, claim,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+        )
+        with torch.no_grad():
+            logits = self._model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1)
+        return probs[0][0].item()
 
     def get_confidence(self, query: str, context: str, response: str) -> float:
-        """Get confidence in the NLI score."""
         return abs(self.score(query, context, response) - 0.5) * 2
 
 
