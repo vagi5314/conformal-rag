@@ -14,15 +14,15 @@
 
 | Task | Status | Commit | Date | Notes |
 |------|--------|--------|------|-------|
-| 1: Project Scaffolding + Pydantic Models | ⏳ | — | — | |
-| 2: Core Data Models + Retrieval Pipeline | ⏸ | — | — | Depends: T1 |
-| 3: NLI Ensemble (fast path) | ⏸ | — | — | Depends: T1 |
-| 4: LLM Judge Scoring | ⏸ | — | — | Depends: T1, T3 |
-| 5: Adaptive Conformal Inference Engine | ⏸ | — | — | Depends: T1 |
-| 6: Domain-Specific Calibration | ⏸ | — | — | Depends: T5 |
-| 7: Hallucination Risk Controller (orchestrator) | ⏸ | — | — | Depends: T2,T3,T4,T5,T6 |
-| 8: FastAPI REST API | ⏸ | — | — | Depends: T7 |
-| 9: Evaluation Pipeline | ⏸ | — | — | Depends: T7 |
-| 10: Dashboard | ⏸ | — | — | Depends: T8 |
-| 11: Packaging + CI/CD | ⏸ | — | — | Depends: T7 |
-| 12: Documentation + Examples | ⏸ | — | — | Depends: T7,T8,T9 |
+| 1: Project Scaffolding + Pydantic Models | ✅ | fd3d260 | 2026-07-03 | Approved. 13/13 tests. Fix: rejection tests, config.py tests |
+| 2: Guards Module (P0 Security) | ✅ | 75cca00 | 2026-07-03 | Approved. 14/14 tests. Fix: label validation |
+| 3: LLM Multi-Provider Router | ✅ | 19d5e02 | 2026-07-03 | Approved. 4/4 tests |
+| 4: NLI Scoring Pipeline | ✅ | d07ae70 | 2026-07-03 | Approved. 6/6 tests |
+| 5: Conformal Risk Control Engine | ✅ | f6e4877 | 2026-07-03 | Approved. 6/6 tests. Fix: abstention logic |
+| 6: Online Adaptive Conformal | ✅ | 33e077d | 2026-07-03 | Approved. 5/5 tests |
+| 7: Per-Domain Calibration Manager | ✅ | b02112e | 2026-07-03 | Approved. 5/5 tests |
+| 8: Monitoring Module | ✅ | 9af871f | 2026-07-03 | Approved. 5/5 tests |
+| 9: Retrieval Stack | ✅ | a3673c9 | 2026-07-03 | Approved. 5/5 tests |
+| 10: FastAPI Endpoints | ✅ | ada3380 | 2026-07-03 | Approved. 2/2 tests |
+| 11: Python Client SDK | ✅ | 76766f4 | 2026-07-03 | Approved. 3/3 tests |
+| 12: Package __init__.py and Final Integration | ⏸ | — | — | Depends: T1-T11 |
