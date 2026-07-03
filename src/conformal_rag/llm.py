@@ -1,11 +1,9 @@
-"""LLM multi-provider routing via LiteLLM."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-import httpx
+import litellm
 
 
 @dataclass
@@ -30,7 +28,6 @@ class LLMClient:
         self.config = config or LLMConfig()
         self.providers = self.config.fallback_chain
         self.fallback_chain = self.config.fallback_chain
-        self._client = httpx.Client(timeout=self.config.timeout)
 
     def complete(
         self,
@@ -38,19 +35,6 @@ class LLMClient:
         temperature: float = 0.0,
         max_tokens: int = 10,
     ) -> str:
-        """Complete a prompt with automatic fallback.
-
-        Args:
-            prompt: The prompt to complete.
-            temperature: Sampling temperature.
-            max_tokens: Maximum tokens to generate.
-
-        Returns:
-            The completion text.
-
-        Raises:
-            RuntimeError: If all providers fail.
-        """
         last_error = None
         for provider in self.providers:
             try:
@@ -59,7 +43,6 @@ class LLMClient:
             except Exception as e:
                 last_error = e
                 continue
-
         raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
 
     def _call_provider(
@@ -69,13 +52,13 @@ class LLMClient:
         temperature: float = 0.0,
         max_tokens: int = 10,
     ) -> str:
-        """Call a specific LLM provider.
-
-        In production, this uses litellm.completion().
-        For testing, we mock this method.
-        """
-        raise NotImplementedError("Use litellm in production")
+        response = litellm.completion(
+            model=provider,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content.strip()
 
     def close(self):
-        """Close the HTTP client."""
-        self._client.close()
+        pass
