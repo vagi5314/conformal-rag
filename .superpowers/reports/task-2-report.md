@@ -1,56 +1,28 @@
-# Task 2 Report: Guards Module (P0 Security)
+# Task 2: LLM Judge — litellm Integration
 
-**Status:** DONE  
-**Commit:** `75cca00` — feat: add guards module (P0 security)
+## Summary
+Replaced `NotImplementedError` stub in `_call_provider()` with real `litellm.completion()` calls. Added 4 new tests. All 84 tests pass.
 
-## What Was Implemented
+## Changes
 
-5 security guard functions in `src/conformal_rag/guards.py`:
+### `src/conformal_rag/llm.py`
+- Removed `import httpx` and `self._client = httpx.Client(...)` — not needed for litellm
+- Replaced `_call_provider()` body: now calls `litellm.completion(model=provider, messages=[...], temperature=..., max_tokens=...)`
+- Response extracted via `response.choices[0].message.content.strip()`
+- Added back `self.fallback_chain` attribute (backward compat with existing test)
 
-| Function | Purpose |
-|----------|---------|
-| `sanitize_query()` | Regex-based prompt injection removal (7 patterns) |
-| `clamp_alpha()` | Clamps α to valid range [0.001, 0.2] for CRC guarantees |
-| `check_calibration_coverage()` | Warns if calibration set < 100 samples |
-| `detect_pii()` | Detects email, phone, SSN patterns in text |
-| `validate_label_distribution()` | Rejects degenerate label distributions (all-same, >50% hallucination) |
-
-## TDD Evidence
-
-### RED Phase
-```
-ModuleNotFoundError: No module named 'conformal_rag.guards'
-```
-Tests written first, confirmed import failure.
-
-### GREEN Phase
-14/14 passing after implementing `guards.py`.
-
-### Refinement
-Initial implementation had two thresholds in `check_calibration_coverage` (< 100 and < 500). The test `test_no_warnings_above_minimum` expected no warnings at 200 samples. Fixed by removing the < 500 threshold — only the critical < 100 minimum fires.
+### `tests/test_llm_judge.py` (new)
+- `test_complete_returns_string` — verifies mock response string is returned
+- `test_complete_uses_temperature_0` — asserts `temperature=0.0` passed to litellm
+- `test_fallback_on_first_provider_failure` — verifies fallback tries second provider
+- `test_all_providers_fail_raises` — verifies `RuntimeError` when all providers fail
 
 ## Test Results
-
 ```
-27 passed in 0.23s
+84 passed, 7 warnings in 30.90s
 ```
 
-- 14 new guards tests
-- 13 existing model tests (no regressions)
-
-## Files Changed
-
-- `src/conformal_rag/guards.py` — 97 lines (created)
-- `tests/test_guards.py` — 76 lines (created)
-
-## Self-Review Findings
-
-1. **Pattern coverage:** 7 injection patterns cover common attacks. Could expand with more adversarial patterns later.
-2. **PII detection:** Uses regex only. No ML-based PII detection — acceptable for v1 guard, ML detection can be added in a future task.
-3. **`validate_label_distribution` empty case:** Returns `(False, "Empty label list")` — not tested but handled.
-4. **No type:** No type errors. Uses `from __future__ import annotations` for forward references.
-5. **Edge case:** `clamp_alpha(float('nan'))` returns `0.001` (NaN comparisons are always False, so `max(0.001, min(0.2, nan))` → `max(0.001, nan)` → `0.001`). Acceptable defensive behavior.
-
-## Concerns
-
-None. All 14 tests pass, output is pristine, no warnings.
+## Notes
+- `LLMJudge` in `scoring.py` uses `LLMClient` — no changes needed there
+- Fallback chain: Groq → OpenRouter → Together AI → Gemini
+- All calls use `temperature=0.0` for deterministic scoring

@@ -1,85 +1,34 @@
-# Task 1 Report: Project Scaffolding + Pydantic Models
+# Task 1: NLI Scorer — Real DeBERTa-v3 Inference
 
-## Status: DONE
-
-## What I Implemented
-
-- `pyproject.toml` — uv project config with hatchling build backend, all dependencies, dev extras
-- `src/conformal_rag/__init__.py` — Public API exports (Document, CalibrationSample, Prediction, ConformalResult, DriftStatus, Label)
-- `src/conformal_rag/models.py` — 10 Pydantic models: Label (enum), Document, ChunkConfig, CalibrationSample, ScoringBreakdown, ConformalResult, Prediction, DriftStatus, CalibrationStats
-- `src/conformal_rag/config.py` — Settings class with env var loading (CONFORMAL_RAG_* prefix)
-- `tests/__init__.py` — Empty package init
-- `tests/test_models.py` — 13 tests across 7 test classes
-
-## TDD Evidence
-
-### RED Phase
-```
-ModuleNotFoundError: No module named 'conformal_rag'
-```
-Confirmed: tests fail before implementation.
-
-### GREEN Phase
-After `pip install -e ".[dev]"`, all 13 tests pass.
-
-### Python Version Fix
-Plan specified `requires-python = ">=3.10,<3.12"` but system has Python 3.12.10. Updated to `"<3.13"`.
-
-### Install Fix
-Initial `pip install -e ".[dev]"` targeted system Python 3.12 but tests run under hermes venv Python 3.12. Had to install using the venv's pip explicitly.
+- **Status**: DONE
+- **Commit**: `5285c09` on `dev`
 
 ## Test Results
 
-```
-tests/test_models.py::TestDocument::test_auto_generates_doc_id PASSED
-tests/test_models.py::TestDocument::test_preserves_provided_doc_id PASSED
-tests/test_models.py::TestDocument::test_optional_fields_default_none PASSED
-tests/test_models.py::TestChunkConfig::test_defaults PASSED
-tests/test_models.py::TestCalibrationSample::test_creates_with_label PASSED
-tests/test_models.py::TestCalibrationSample::test_hallucination_label PASSED
-tests/test_models.py::TestConformalResult::test_creates_with_all_fields PASSED
-tests/test_models.py::TestLabel::test_correct_is_zero PASSED
-tests/test_models.py::TestLabel::test_hallucination_is_one PASSED
-tests/test_models.py::TestPrediction::test_creates_with_defaults PASSED
-tests/test_models.py::TestCalibrationStats::test_creates_with_defaults PASSED
-tests/test_models.py::TestCalibrationStats::test_custom_weights PASSED
-tests/test_models.py::TestDriftStatus::test_creates_with_recommendation PASSED
+All 80 tests pass (5 new NLI tests + 75 existing):
 
-13 passed in 0.16s
+```
+tests/test_nli.py::TestNLIScorer::test_score_returns_float_between_0_and_1 PASSED
+tests/test_nli.py::TestNLIScorer::test_faithful_response_scores_high PASSED
+tests/test_nli.py::TestNLIScorer::test_hallucination_scores_low PASSED
+tests/test_nli.py::TestNLIScorer::test_decompose_splits_sentences PASSED
+tests/test_nli.py::TestNLIScorer::test_score_claim_returns_float PASSED
 ```
 
-**Note:** Plan said 11 tests but I added 2 extra tests for better coverage (CalibrationStats custom weights, Prediction defaults). Total: 13 tests, all passing.
+## Changes
 
-## Files Changed
+1. **`tests/test_nli.py`** — Created with 5 tests for NLIScorer
+2. **`src/conformal_rag/scoring.py`** — Replaced placeholder NLIScorer with real DeBERTa-v3 inference
 
-| File | Action |
-|------|--------|
-| `pyproject.toml` | Created |
-| `src/conformal_rag/__init__.py` | Created |
-| `src/conformal_rag/models.py` | Created |
-| `src/conformal_rag/config.py` | Created |
-| `tests/__init__.py` | Created |
-| `tests/test_models.py` | Created |
+## Implementation Notes
 
-## Self-Review Findings
+- Model: `MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli` (fallback: `cross-encoder/nli-deberta-v3-small`)
+- Label order: `{0: entailment, 1: neutral, 2: contradiction}` — score uses entailment probability directly
+- Class-level caching via `_nli_cache` dict prevents reloading 1.4GB model across test instances
+- Lazy loading: model loads on first `score()` or `_score_claim()` call
+- `_score_claim` calls `_load_model()` for direct invocation safety
 
-1. **datetime.utcnow() deprecated** — Used `datetime.now(timezone.utc)` instead (Python 3.12+ compliant).
-2. **Label enum is int-based** — `Label.CORRECT == 0`, `Label.HALLUCINATION == 1` as specified.
-3. **Document.doc_id auto-generates UUID** via `model_post_init`.
-4. **Settings loads from env** — Uses `CONFORMAL_RAG_*` prefix, gracefully falls back to defaults.
-5. **No comments in generated code** — Follows project conventions.
+## Concerns
 
-## Acceptance Criteria Check
-
-- [x] All models validate correct data
-- [x] All models reject invalid data with clear errors (Pydantic v2 validation)
-- [x] Serialization works (dict → model → dict)
-- [x] Enums have correct values (CORRECT=0, HALLUCINATION=1)
-- [x] Defaults are sensible
-- [x] Config settings load from environment variables
-- [x] `pip install -e ".[dev]"` works
-- [x] Tests pass (13/13, plan said 11 but extra tests added)
-
-## Commit
-
-`fd3d260` — `feat: project scaffolding with Pydantic models (Task 1)`
+- Model download (~1.4GB) happens on first use; no progress indicator during download
+- Class-level cache persists across tests in same process (intentional for performance)
