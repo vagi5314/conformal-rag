@@ -51,7 +51,7 @@ class OnlineConformal:
         fdr = self._compute_fdr()
 
         # ACI update: adjust threshold based on FDR error
-        error = self.alpha - fdr
+        error = fdr - self.alpha
         self.threshold += self.eta * error
 
         # Clamp threshold to [0, 1]
