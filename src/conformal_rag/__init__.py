@@ -12,6 +12,9 @@ from conformal_rag.models import (
     Label,
 )
 from conformal_rag.engine import ConformalRAGEngine
+from conformal_rag.scoring import ScoringPipeline, NLIScorer, LLMJudge
+from conformal_rag.retrieval import HybridRetriever
+from conformal_rag.online import OnlineConformal
 from conformal_rag.domain import DomainManager
 from conformal_rag.client import ConformalRAG
 from conformal_rag.monitoring import FDRMonitor
@@ -29,6 +32,11 @@ __all__ = [
     "ChunkConfig",
     "Label",
     "ConformalRAGEngine",
+    "ScoringPipeline",
+    "NLIScorer",
+    "LLMJudge",
+    "HybridRetriever",
+    "OnlineConformal",
     "DomainManager",
     "ConformalRAG",
     "FDRMonitor",
