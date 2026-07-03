@@ -131,13 +131,10 @@ class ConformalRAGEngine:
         # Abstain if risk score falls below threshold (low faithfulness = high hallucination risk)
         abstained = risk_score < threshold
 
-        # Confidence interval (approximate)
-        n = len(self._calibration_scores) if self._calibration_scores else 100
-        ci_width = 1.96 * np.sqrt(threshold * (1 - threshold) / n)
-        confidence_interval = (
-            max(0.0, risk_bound - ci_width),
-            min(1.0, risk_bound + ci_width),
+        ci = self._compute_confidence_interval(
+            self._calibration_scores, self._calibration_labels, self.alpha
         )
+        confidence_interval = ci
 
         latency_ms = (time.time() - start_time) * 1000
 
@@ -152,3 +149,14 @@ class ConformalRAGEngine:
             domain=domain or self._domain,
             latency_ms=latency_ms,
         )
+
+    def _compute_confidence_interval(
+        self, scores: list, labels: list, alpha: float
+    ) -> tuple:
+        if not scores:
+            return (0.0, 1.0)
+        correct_scores = [s for s, l in zip(scores, labels) if l == 0]
+        if not correct_scores:
+            return (0.0, 1.0)
+        quantile = float(np.quantile(correct_scores, 1 - alpha))
+        return (quantile, 1.0)
