@@ -1,7 +1,7 @@
 """Tests for LLM multi-provider routing."""
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch
 from conformal_rag.llm import LLMClient, LLMConfig
 
 
@@ -26,3 +26,19 @@ class TestLLMClient:
     def test_has_fallback_chain(self):
         client = LLMClient()
         assert client.fallback_chain is not None
+
+    def test_fallback_on_provider_failure(self):
+        client = LLMClient()
+        call_count = 0
+
+        def mock_call(provider, prompt, temperature=0.0, max_tokens=10):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("Provider 1 failed")
+            return "success"
+
+        with patch.object(client, '_call_provider', side_effect=mock_call):
+            result = client.complete("test prompt")
+            assert result == "success"
+            assert call_count == 2

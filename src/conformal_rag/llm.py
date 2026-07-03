@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -33,11 +32,18 @@ class LLMClient:
         self.fallback_chain = self.config.fallback_chain
         self._client = httpx.Client(timeout=self.config.timeout)
 
-    def complete(self, prompt: str) -> str:
+    def complete(
+        self,
+        prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = 10,
+    ) -> str:
         """Complete a prompt with automatic fallback.
 
         Args:
             prompt: The prompt to complete.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
 
         Returns:
             The completion text.
@@ -48,7 +54,7 @@ class LLMClient:
         last_error = None
         for provider in self.providers:
             try:
-                response = self._call_provider(provider, prompt)
+                response = self._call_provider(provider, prompt, temperature, max_tokens)
                 return response
             except Exception as e:
                 last_error = e
@@ -56,7 +62,13 @@ class LLMClient:
 
         raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
 
-    def _call_provider(self, provider: str, prompt: str) -> str:
+    def _call_provider(
+        self,
+        provider: str,
+        prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = 10,
+    ) -> str:
         """Call a specific LLM provider.
 
         In production, this uses litellm.completion().

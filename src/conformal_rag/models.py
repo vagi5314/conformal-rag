@@ -66,8 +66,8 @@ class ConformalResult(BaseModel):
 
     query: str
     response: str
-    risk_score: float
-    risk_bound: float
+    risk_score: float = Field(ge=0.0)
+    risk_bound: float = Field(ge=0.0)
     abstained: bool
     confidence_interval: tuple[float, float]
     scoring_breakdown: ScoringBreakdown
@@ -82,8 +82,8 @@ class Prediction(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     query: str
     response: str
-    risk_score: float
-    risk_bound: float
+    risk_score: float = Field(ge=0.0)
+    risk_bound: float = Field(ge=0.0)
     abstained: bool
     domain: str = "default"
     latency_ms: float = 0.0

@@ -143,3 +143,29 @@ class TestDriftStatus:
             recommendation="No drift detected",
         )
         assert status.drifted is False
+
+
+class TestModelRejection:
+    def test_document_requires_text(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            Document()
+
+    def test_calibration_sample_rejects_invalid_label(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            CalibrationSample(
+                query="q", context="c", response="r", label="invalid"
+            )
+
+    def test_conformal_result_rejects_negative_risk(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            ConformalResult(
+                query="q", response="r", risk_score=-0.1,
+                risk_bound=0.05, abstained=False,
+                confidence_interval=(0.0, 0.05),
+                scoring_breakdown=ScoringBreakdown(
+                    nli_score=0.9, final_score=0.9, nli_latency_ms=100.0
+                )
+            )
