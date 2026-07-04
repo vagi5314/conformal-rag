@@ -49,12 +49,12 @@ class RAGTruthBenchmark(BaseBenchmark):
 
     async def run_sample(self, sample: Sample, engine) -> Result:
         """Run the conformal engine on a single sample."""
-        # TODO: Integrate with actual engine in Task 12
+        prediction = engine.predict(sample.question, sample.context, sample.ground_truth)
         return Result(
             sample_id=sample.id,
-            prediction_set=[sample.ground_truth],
-            abstained=False,
-            confidence=0.9,
+            prediction_set=[] if prediction.abstained else [sample.ground_truth],
+            abstained=prediction.abstained,
+            confidence=1.0 - prediction.risk_score,
         )
 
     async def aggregate(self, results: list[Result]) -> Aggregation:

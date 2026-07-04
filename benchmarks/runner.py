@@ -12,14 +12,16 @@ from typing import Optional
 from benchmarks import get_all_benchmarks
 from benchmarks.config import load_config, BenchmarkConfig
 from benchmarks.base import Aggregation
+from conformal_rag.engine import ConformalRAGEngine
 
 
 class BenchmarkRunner:
     """Discovers and runs benchmark plugins."""
 
-    def __init__(self, config: Optional[BenchmarkConfig] = None):
+    def __init__(self, config: Optional[BenchmarkConfig] = None, alpha: float = 0.05):
         self.config = config or load_config()
         self.benchmarks = get_all_benchmarks()
+        self.alpha = alpha
 
     async def run_one(
         self, name: str, alpha: float = 0.05, dry_run: bool = False
@@ -43,9 +45,11 @@ class BenchmarkRunner:
             print(f"Dry run: would calibrate on {calibration_size} samples, test on {len(test_samples)}")
             return {"benchmark": name, "dry_run": True, "samples": len(samples)}
 
+        engine = ConformalRAGEngine(alpha=alpha)
+
         results = []
         for sample in test_samples:
-            result = await benchmark.run_sample(sample, engine=None)
+            result = await benchmark.run_sample(sample, engine)
             results.append(result)
 
         aggregation = await benchmark.aggregate(results)
