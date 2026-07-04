@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Type
+from typing import Type
 
 BENCHMARK_REGISTRY: dict[str, Type] = {}
 
