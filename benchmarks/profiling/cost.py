@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 
 PROVIDER_PRICING = {
@@ -77,7 +78,13 @@ class CostTracker:
 
 
 def track_cost(tracker: CostTracker, provider: str) -> Callable:
+    """Decorator that tracks async function cost."""
     def decorator(func: Callable) -> Callable:
+        if not asyncio.iscoroutinefunction(func):
+            raise TypeError(
+                f"track_cost requires an async function, got {func.__name__}. "
+                "Use async def for functions decorated with @track_cost."
+            )
         @wraps(func)
         async def wrapper(*args, **kwargs):
             result = await func(*args, **kwargs)
