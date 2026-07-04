@@ -59,3 +59,7 @@ Thumbs.db
 
 # Project
 .superpowers/reports/
+
+# Benchmark output
+benchmarks/results/
+benchmarks/reports/
