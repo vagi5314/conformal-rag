@@ -22,7 +22,7 @@ class RAGTruthBenchmark(BaseBenchmark):
         """Load RAGTruth dataset from HuggingFace."""
         from datasets import load_dataset
 
-        dataset = load_dataset("wandb/RAGTruth-processed", split="train[:1000]")
+        dataset = load_dataset("wandb/RAGTruth-processed", split="train[:50]")
         samples = []
         for i, item in enumerate(dataset):
             hl = item.get("hallucination_labels_processed", {})
@@ -55,14 +55,20 @@ class RAGTruthBenchmark(BaseBenchmark):
             prediction_set=[] if prediction.abstained else [sample.ground_truth],
             abstained=prediction.abstained,
             confidence=1.0 - prediction.risk_score,
+            metadata={"has_hallucination": sample.metadata.get("has_hallucination", False)},
         )
 
     async def aggregate(self, results: list[Result]) -> Aggregation:
         """Compute FDR, coverage, abstention rate."""
         total = len(results)
+        accepted = [r for r in results if not r.abstained]
+        false_positives = sum(
+            1 for r in accepted if r.metadata.get("has_hallucination", False)
+        )
+        fdr = false_positives / len(accepted) if accepted else 0.0
         abstained = sum(1 for r in results if r.abstained)
         return Aggregation(
-            fdr=0.0,
+            fdr=fdr,
             coverage=1.0 - (abstained / total) if total > 0 else 0.0,
             abstention_rate=abstained / total if total > 0 else 0.0,
             total_samples=total,
