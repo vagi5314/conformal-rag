@@ -138,3 +138,17 @@ def test_config_providers():
     assert "groq" in config.providers
     assert "together" in config.providers
     assert "siliconflow" in config.providers
+
+
+from benchmarks.runner import BenchmarkRunner
+
+
+def test_runner_discovers_benchmarks():
+    runner = BenchmarkRunner()
+    assert len(runner.benchmarks) > 0
+
+
+def test_runner_config():
+    runner = BenchmarkRunner()
+    assert runner.config is not None
+    assert runner.config.calibration_ratio == 0.8
