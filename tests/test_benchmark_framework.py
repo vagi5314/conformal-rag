@@ -1,6 +1,7 @@
 import pytest
 from benchmarks import register_benchmark, get_all_benchmarks, BENCHMARK_REGISTRY
 from benchmarks.base import Sample, Result, Aggregation, BaseBenchmark
+from benchmarks.config import load_config, BenchmarkConfig
 
 
 def test_register_benchmark_decorator():
@@ -121,3 +122,19 @@ def test_base_benchmark_subclass():
 
     b = ConcreteBenchmark()
     assert b.name == "test"
+
+
+def test_load_config():
+    config = load_config()
+    assert isinstance(config, BenchmarkConfig)
+    assert 0.01 in config.alpha_values
+    assert 0.05 in config.alpha_values
+    assert 0.10 in config.alpha_values
+    assert config.calibration_ratio == 0.8
+
+
+def test_config_providers():
+    config = load_config()
+    assert "groq" in config.providers
+    assert "together" in config.providers
+    assert "siliconflow" in config.providers

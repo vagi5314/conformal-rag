@@ -1,0 +1,12 @@
+alpha_values: [0.01, 0.05, 0.10]
+calibration_ratio: 0.8
+providers:
+  - groq
+  - together
+  - siliconflow
+budget_simulation:
+  qps_levels: [1, 10, 100]
+  duration_seconds: 3600
+output:
+  results_dir: benchmarks/results
+  reports_dir: benchmarks/reports
