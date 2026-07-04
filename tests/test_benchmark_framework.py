@@ -152,3 +152,13 @@ def test_runner_config():
     runner = BenchmarkRunner()
     assert runner.config is not None
     assert runner.config.calibration_ratio == 0.8
+
+
+def test_imports_datasets():
+    import datasets
+    assert hasattr(datasets, "load_dataset")
+
+
+def test_imports_pandas():
+    import pandas
+    assert hasattr(pandas, "DataFrame")
