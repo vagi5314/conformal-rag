@@ -6,8 +6,23 @@ build-backend = "hatchling.build"
 name = "conformal-rag"
 version = "0.1.0"
 description = "Production conformal RAG with FDR-guaranteed hallucination bounds"
+readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = "Apache-2.0"
+authors = [
+    { name = "Vagi S", email = "vagi5314@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "mapie>=1.0",
     "online-cp>=0.1",
@@ -48,7 +63,7 @@ target-version = "py310"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
-[dependency-groups]
-dev = [
-    "pytest>=9.1.1",
-]
+[project.urls]
+Homepage = "https://github.com/vagi5314/conformal-rag"
+Repository = "https://github.com/vagi5314/conformal-rag"
+Documentation = "https://github.com/vagi5314/conformal-rag#readme"

@@ -22,6 +22,25 @@ def register_benchmark(cls: Type) -> Type:
     return cls
 
 
+def _import_benchmarks() -> None:
+    """Import all benchmark modules to trigger registration."""
+    import importlib
+    import pathlib
+
+    pkg_dir = pathlib.Path(__file__).parent
+    for py_file in pkg_dir.glob("*.py"):
+        if py_file.name.startswith("_") or py_file.name in ("base.py", "config.py", "runner.py"):
+            continue
+        module_name = f"benchmarks.{py_file.stem}"
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            pass
+
+
+_import_benchmarks()
+
+
 def get_all_benchmarks() -> dict[str, Type]:
     """Return all registered benchmarks."""
     return dict(BENCHMARK_REGISTRY)

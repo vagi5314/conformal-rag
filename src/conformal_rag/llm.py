@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import litellm
 
@@ -19,6 +19,7 @@ class LLMConfig:
         "together_ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         "gemini/gemini-2.5-flash",
     ])
+    usage_callback: Optional[Callable[[str, int, int], None]] = None
 
 
 class LLMClient:
@@ -28,6 +29,7 @@ class LLMClient:
         self.config = config or LLMConfig()
         self.providers = self.config.fallback_chain
         self.fallback_chain = self.config.fallback_chain
+        self.usage_callback = self.config.usage_callback
 
     def complete(
         self,
@@ -58,6 +60,14 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        if self.usage_callback is not None:
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                self.usage_callback(
+                    provider,
+                    int(getattr(usage, "prompt_tokens", 0) or 0),
+                    int(getattr(usage, "completion_tokens", 0) or 0),
+                )
         return response.choices[0].message.content.strip()
 
     def close(self):
