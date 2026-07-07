@@ -2,8 +2,7 @@ __pycache__
 *.pyc
 *.pyo
 *.egg-info
-.git
-.gitignore
+.venv
 .env
 .env.*
 tests/
@@ -20,3 +19,6 @@ AGENTS.md
 docker-compose.yml
 fly.toml
 .github/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
