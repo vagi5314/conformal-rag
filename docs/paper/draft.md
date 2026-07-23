@@ -2,7 +2,7 @@
 
 **Authors:** Vagi S. (vagi5314@gmail.com)  
 **Repository:** https://github.com/vagi5314/conformal-rag  
-**Draft:** v0.1 — 2026-07-07
+**Draft:** v0.2 — 2026-07-23
 
 ---
 
@@ -34,14 +34,26 @@ Retrieval-Augmented Generation (RAG) systems are widely deployed but suffer from
 - **SelfCheckGPT** (Manakul et al., 2023): Consistency checking without external knowledge. No FDR control.
 - **LLM-as-a-Judge** (Zheng et al., 2024): Uses LLMs to evaluate correctness. Expensive, no calibration.
 - **NLI-based detectors** (Honovich et al., 2022): Entailment classification for factual consistency. Uncalibrated scores.
+- **The Semantic Illusion** (Sinha, 2025): Embedding-based hallucination detection fails on real hallucinations — 100% false positive rate on HaluEval. Demonstrates that LLM-based scoring is necessary for reliable detection.
+- **LettuceDetect** (KRLabsOrg, 2025): Lightweight heuristic hallucination detection framework. No conformal prediction or statistical guarantees.
 
 ### 2.2 Conformal Prediction for NLP
 
 - **Conformal risk control** (Angelopoulos et al., 2024): General framework for controlling risk (not just error rate). We use this as our theoretical foundation.
 - **Split conformal prediction** (Papadopoulos et al., 2002; Lei et al., 2018): Exchangeable calibration. Our CRC variant does not require exchangeability.
 - **Adaptive conformal inference** (Gibbs & Candès, 2021): Online coverage guarantees via ACI updates. We adapt this for FDR in the streaming RAG setting.
+- **When Can CRC Certify LLM Outputs?** (2026): Impossibility result for CRC on LLMs, showing ACI reduces violations 71%→21%. Provides theoretical grounding for our online adaptive approach.
 
-### 2.3 RAG Evaluation
+### 2.3 RAG + Conformal Prediction
+
+- **TRAQ** (Li et al., NAACL 2024): First end-to-end statistical correctness guarantee for RAG using conformal prediction on retrieval + generation. Coverage guarantee only, not FDR.
+- **C-RAG** (Kang et al., ICML 2024): Certified generation risks for RAG via conformal risk analysis. Theoretical framework, no production implementation.
+- **Conformal-RAG** (Feng et al., ACM 2025): Conditional conformal prediction for sub-claim factuality verification. Retains 60% more sub-claims at same factuality level.
+- **CONFLARE** (Rouzrokh et al., 2024): Four-step framework for conformal prediction on retrieval uncertainty. Retrieval-level only.
+- **CalibRAG** (Jang et al., NeurIPS 2025): Calibrated retrieval for decision-making via forecasting functions.
+- **Dependable RAG** (2025): Two-stage CP for retrieval filtering + attention-based factuality classifier.
+
+### 2.4 RAG Evaluation
 
 - **RAGTruth** (Niu et al., 2024): Human-annotated hallucination dataset with fine-grained types.
 - **RGB** (Chen et al., 2024): Benchmark suite for RAG faithfulness. No per-domain calibration analysis.

@@ -1,8 +1,8 @@
 # Conformal RAG Platform — Research Document
 
-**Date**: July 3, 2026  
+**Date**: July 3, 2026 (updated July 23, 2026)  
 **Project**: Production conformal RAG with risk control  
-**Status**: Research complete, ready for design spec
+**Status**: Research complete, implementation complete, elevation roadmap defined
 
 ---
 
@@ -639,6 +639,70 @@ PyPI trusted publishing (OIDC): no API tokens, GitHub Actions can publish direct
 
 ---
 
-*Document generated: July 3, 2026*  
+*Document generated: July 3, 2026 (updated July 23, 2026)*  
 *Research scope: GitHub, Reddit, web search, academic papers, library benchmarks*  
-*Next step: Design spec → Writing plans → Implementation*
+*Status: Implementation complete, elevation roadmap defined*
+
+---
+
+## 12. Latest Findings (July 2026)
+
+### 12.1 Key Papers (2025-2026)
+
+#### The Semantic Illusion (Dec 2025)
+- **Author**: Debu Sinha
+- **URL**: https://arxiv.org/pdf/2512.15068
+- **Critical Finding**: Embedding-based hallucination detection fails on real hallucinations
+  - Synthetic hallucinations (NQ): 95% coverage, 0% FPR ✓
+  - Real hallucinations (HaluEval): 95% coverage, **100% FPR** ✗
+  - GPT-4 judge: 7% FPR (95% CI: [3.4%, 13.7%])
+- **Implication**: Must use LLM-based scoring, not embeddings
+
+#### Conformal-RAG (Jul 2025)
+- **Authors**: Ningyu Feng, Yi Sui, Shiyi Hou, Jesse C. Cresswell, Ga Wu
+- **URL**: https://arxiv.org/html/2506.20978v1
+- **Key Contribution**: Conditional conformal prediction for sub-claim factuality verification
+- **Results**: 60% more retained claims vs baselines
+- **Limitation**: Sub-claim level, not end-to-end hallucination rate FDR
+
+#### Provable Bounds on Hallucination Rate (Apr 2026)
+- **URL**: https://arxiv.org/html/2604.12017
+- **Key Contribution**: Rigorous bound: Pr[hallucinate] <= 1 - rho + delta
+- **Implication**: Provides theoretical grounding for our FDR guarantee
+
+#### When Can CRC Certify LLM Outputs? (Jun 2026)
+- **URL**: https://arxiv.org/html/2606.07787v1
+- **Key Contribution**: Impossibility result for CRC on LLMs
+- **Key Result**: ACI reduces violations from 71% to 21%
+- **Implication**: Validates our online adaptive approach
+
+### 12.2 Ecosystem Integration Gap
+
+**LangChain**: No conformal prediction integration exists. Current RAG components use naive thresholding or no confidence at all.
+
+**LlamaIndex**: No conformal prediction integration exists. Similar gap to LangChain.
+
+**Opportunity**: First conformal prediction wrapper for either framework would be a genuine contribution.
+
+### 12.3 Elevation Roadmap
+
+| Priority | Task | Effort | Impact |
+|----------|------|--------|--------|
+| P0 | Gradio demo | 4-8h | Demo centerpiece |
+| P0 | HuggingFace Space | 2-4h | Public demo URL |
+| P0 | Benchmark with LLM judge | 5 min | Paper results |
+| P1 | Chrome extension | 15-25h | "Wow" factor |
+| P1 | LangChain wrapper | 6h | Ecosystem |
+| P1 | LlamaIndex wrapper | 6h | Ecosystem |
+| P2 | Publication (UncertaiNLP) | 2-3 weeks | Academic validation |
+
+### 12.4 Publication Targets
+
+| Venue | Deadline | Status |
+|-------|----------|--------|
+| **UncertaiNLP @ EMNLP 2026** | Aug 7, 2026 | Active target |
+| **arXiv preprint** | Rolling | After benchmark results |
+
+---
+
+*Updated: July 23, 2026*
