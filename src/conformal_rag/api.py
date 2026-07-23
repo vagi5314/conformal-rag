@@ -27,6 +27,12 @@ class CalibrateRequest(BaseModel):
     domain: str = "default"
 
 
+class FeedbackRequest(BaseModel):
+    domain: Optional[str] = "default"
+    predicted_hallucination: bool = False
+    actual_hallucination: bool = False
+
+
 def create_app() -> FastAPI:
     """Create FastAPI application."""
     app = FastAPI(
@@ -55,6 +61,10 @@ def create_app() -> FastAPI:
             response=request.response,
             domain=request.domain,
         )
+        monitor.record(
+            predicted_hallucination=result.abstained,
+            actual_hallucination=False,
+        )
         return result.model_dump()
 
     @app.post("/calibrate")
@@ -67,5 +77,14 @@ def create_app() -> FastAPI:
             domain=request.domain,
         )
         return stats.model_dump()
+
+    @app.post("/feedback")
+    async def feedback(request: FeedbackRequest):
+        domain_manager.record(
+            request.domain,
+            predicted_hallucination=request.predicted_hallucination,
+            actual_hallucination=request.actual_hallucination,
+        )
+        return {"status": "recorded"}
 
     return app
