@@ -221,12 +221,6 @@ def record_observation(
 # ---------------------------------------------------------------------------
 with gr.Blocks(
     title="Conformal RAG — FDR-Guaranteed Hallucination Bounds",
-    theme=gr.themes.Soft(),
-    css="""
-    .verdict-accepted { color: #16a34a; font-weight: bold; font-size: 1.2em; }
-    .verdict-abstained { color: #dc2626; font-weight: bold; font-size: 1.2em; }
-    .metric-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
-    """,
 ) as demo:
     gr.Markdown(
         """
@@ -385,4 +379,8 @@ with gr.Blocks(
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        theme=gr.themes.Soft(),
+    )

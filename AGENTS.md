@@ -25,7 +25,7 @@ Production conformal RAG library with FDR-guaranteed hallucination bounds. Pytho
 - `scikit-learn==1.4.2` and `scipy==1.14.0` pinned (AppLocker binary hash block)
 
 ### Next Steps — Elevation Roadmap
-1. **Gradio demo** — Web UI with prediction set visualization (4-8h)
+1. ~~**Gradio demo**~~ — Done. `demo/app.py` with Predict/Calibrate/Monitor tabs.
 2. **HuggingFace Space** — Deploy demo with shareable URL (2-4h)
 3. **Chrome extension** — Highlight text → conformal verdict + coverage guarantee (15-25h)
 4. **LangChain/LlamaIndex wrapper** — No existing conformal prediction integration (12-20h)
@@ -87,6 +87,7 @@ conformal-rag/
 │   └── client.py           # Python client SDK (real index/retrieve/check)
 ├── tests/                  # 105 core tests
 ├── benchmarks/             # 5 plugins + eval.py + profiling
+├── demo/                   # Gradio web UI (Predict/Calibrate/Monitor)
 ├── docs/                   # Specs, plans, research, paper
 ├── HANDOFF.md              # Session handoff
 ├── pyproject.toml          # Package config (hatchling)

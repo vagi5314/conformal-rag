@@ -19,28 +19,43 @@ Current RAG systems use heuristic thresholds for confidence. No production tool 
 ## Quick Start
 
 ```bash
-pip install conformal-rag
+git clone https://github.com/vagi5314/conformal-rag.git
+cd conformal-rag
+pip install -e .
 ```
 
 ```python
-from conformal_rag import ConformalRAG
+from conformal_rag.client import ConformalRAG
 
 # Initialize with target FDR (5% hallucination rate)
 rag = ConformalRAG(alpha=0.05)
 
 # Index documents
 rag.index([
-    {"text": "Paris is the capital of France.", "domain": "geography"},
-    {"text": "Python is a programming language.", "domain": "tech"},
+    {"text": "Paris is the capital of France.", "metadata": {"domain": "geography"}},
+    {"text": "Python is a programming language.", "metadata": {"domain": "tech"}},
 ])
 
-# Query with risk control
-result = rag.query("What is the capital of France?")
-print(result.response)      # "Paris is the capital of France."
+# Retrieve context
+context = rag.retrieve("What is the capital of France?")
+
+# Risk-check an LLM response
+result = rag.check("What is the capital of France?", response="Paris is the capital of France.")
 print(result.risk_score)     # 0.02 (calibrated)
 print(result.abstained)      # False (risk below threshold)
 print(result.risk_bound)     # 0.05 (guaranteed FDR)
 ```
+
+### Gradio Demo
+
+```bash
+set PYTHONPATH=src
+pip install gradio
+python demo/app.py
+# Opens at http://localhost:7860
+```
+
+Three tabs: **Predict** (query + risk check), **Calibrate** (label data), **Monitor** (live FDR tracking).
 
 ## How It Works
 
@@ -86,22 +101,19 @@ Query + Retrieved Context + LLM Response
 The competitive edge: no other tool calibrates per domain.
 
 ```python
-from conformal_rag import ConformalRAG
+from conformal_rag.client import ConformalRAG
 
-rag = ConformalRAG()
+rag = ConformalRAG(alpha=0.05)
 
-# Finance: strict (1% hallucination tolerance)
-rag.calibrate(domain="finance", alpha=0.01, data=finance_data)
+# Index domain-specific documents
+rag.index([
+    {"text": "Apple's P/E ratio is 28.5.", "metadata": {"domain": "finance"}},
+    {"text": "Aspirin reduces fever.", "metadata": {"domain": "medical"}},
+])
 
-# General: relaxed (10% tolerance)
-rag.calibrate(domain="general", alpha=0.10, data=general_data)
-
-# Medical: ultra-strict (0.1% tolerance)
-rag.calibrate(domain="medical", alpha=0.001, data=medical_data)
-
-# Auto-detects domain from query
-result = rag.query("What is the P/E ratio of Apple?")
-# Auto-routes to finance domain, applies α=0.01
+# Retrieve and risk-check per query
+result = rag.check("What is the P/E ratio of Apple?", response="28.5")
+# Applies calibration for the finance domain
 ```
 
 ## Real-Time Performance
@@ -124,25 +136,20 @@ Tested on CPU (no GPU required):
 ### Python SDK
 
 ```python
-from conformal_rag import ConformalRAG, ConformalRAGEngine, NLIScorer, HybridRetriever
+from conformal_rag.client import ConformalRAG
+from conformal_rag.engine import ConformalRAGEngine
 
 # High-level client
 rag = ConformalRAG(alpha=0.05, llm_provider="groq")
 rag.index(documents)
-result = rag.query("What is...")
+context = rag.retrieve("What is...")
+result = rag.check("What is...", response="the answer")
+print(result.abstained, result.risk_score, result.risk_bound)
 
 # Low-level engine
 engine = ConformalRAGEngine(alpha=0.05)
 engine.calibrate(queries, contexts, responses, labels)
 result = engine.predict(query, context, response)
-
-# Individual components
-scorer = NLIScorer()
-score = scorer.score(query, context, response)
-
-retriever = HybridRetriever()
-retriever.index(documents)
-results = retriever.retrieve(query)
 ```
 
 ### REST API
@@ -196,7 +203,7 @@ conformal-rag/
 │   ├── config.py            # Configuration
 │   ├── api.py               # FastAPI endpoints
 │   └── client.py            # Python client SDK
-├── tests/                   # 161 tests
+├── tests/                   # 105 core tests (all passing)
 ├── benchmarks/              # Evaluation scripts
 │   ├── runner.py            # Multi-benchmark CLI runner
 │   ├── _common.py           # Shared helpers (scoring, injection, aggregation)
@@ -208,8 +215,10 @@ conformal-rag/
 │   ├── reporting.py         # Markdown report generation
 │   └── profiling/           # Latency + cost tracing
 ├── docs/                    # Specs, plans, research
-│   ├── paper/draft.md       # Paper skeleton (Phase 4)
+│   ├── paper/draft.md       # Paper draft (v0.2)
 │   └── superpowers/         # Design specs, plans
+├── demo/                    # Gradio web UI
+│   └── app.py               # Predict/Calibrate/Monitor tabs
 ├── pyproject.toml           # Package config
 ├── Dockerfile               # Container config
 ├── docker-compose.yml       # Local services
@@ -260,8 +269,16 @@ uvicorn conformal_rag.api:app --reload --port 8000
 
 ### Phase 4: Publication
 - [x] Paper draft skeleton (IMRaD outline)
+- [x] Paper citations updated (2025-2026 papers: Semantic Illusion, Conformal-RAG, TRAQ, C-RAG)
 - [ ] arXiv submission (fill LLM-judge results first)
 - [ ] Open source launch (after arXiv)
+
+### Phase 5: Elevation
+- [x] Gradio demo UI (Predict/Calibrate/Monitor tabs)
+- [x] Research findings documented (RESEARCH.md updated)
+- [ ] HuggingFace Spaces deployment (public shareable URL)
+- [ ] Chrome extension (highlight text → conformal verdict)
+- [ ] LangChain/LlamaIndex wrapper (ecosystem integration)
 
 ## Research
 
