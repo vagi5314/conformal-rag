@@ -27,6 +27,8 @@ class HybridRetriever:
         self.qdrant_url = qdrant_url
         self.collection = collection
         self._documents: List[str] = []
+        self._tokenized_docs: List[List[str]] = []
+        self._bm25: Optional[BM25Okapi] = None
         self._embedder = None
         self._client = None
 
@@ -43,6 +45,8 @@ class HybridRetriever:
     def index(self, documents: List) -> None:
         for doc in documents:
             self._documents.append(doc.text)
+        self._tokenized_docs = [doc.lower().split() for doc in self._documents]
+        self._bm25 = BM25Okapi(self._tokenized_docs) if self._tokenized_docs else None
 
     def retrieve(self, query: str) -> List[str]:
         dense_results = self._dense_search(query)
@@ -73,12 +77,10 @@ class HybridRetriever:
         return [self._documents[i] for i in top_indices]
 
     def _in_memory_sparse_search(self, query: str) -> List[str]:
-        if not self._documents:
+        if not self._documents or self._bm25 is None:
             return []
-        tokenized_docs = [doc.lower().split() for doc in self._documents]
-        bm25 = BM25Okapi(tokenized_docs)
         query_tokens = query.lower().split()
-        scores = bm25.get_scores(query_tokens)
+        scores = self._bm25.get_scores(query_tokens)
         top_indices = np.argsort(scores)[::-1][:self.top_k]
         return [self._documents[i] for i in top_indices]
 
@@ -95,10 +97,12 @@ class HybridRetriever:
     def _qdrant_sparse_search(self, query: str) -> List[str]:
         from qdrant_client.models import SparseVector
         tokens = query.lower().split()
-        sparse = SparseVector(
-            indices=list(range(len(tokens))),
-            values=[1.0] * len(tokens),
-        )
+        token_counts = {}
+        for t in tokens:
+            token_counts[t] = token_counts.get(t, 0) + 1
+        indices = list(range(len(token_counts)))
+        values = [float(c) for c in token_counts.values()]
+        sparse = SparseVector(indices=indices, values=values)
         results = self._client.search(
             collection_name=self.collection,
             query_vector=("sparse", sparse),
