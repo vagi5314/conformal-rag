@@ -1,28 +1,37 @@
-"""Online Adaptive Conformal Inference (ACI)."""
+"""Online Adaptive Conformal Inference (ACI), quantile-level.
+
+Implements the Gibbs & Candès (2021) ACI idea: maintain a running quantile
+level lambda_t of the nonconformity-score window and nudge lambda_t so that
+the long-run miscoverage approaches the target alpha. Under exchangeability
+this yields approximate alpha-level control (heuristic convergence, not a
+hard finite-sample guarantee).
+"""
 
 from __future__ import annotations
 
 from collections import deque
 
+import numpy as np
+
+
+def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, x))
+
 
 class OnlineConformal:
-    """Adaptive Conformal Inference for streaming data.
-
-    Handles distribution shift by adjusting threshold each round.
-    Convergence: FDR → α as t → ∞ (under exchangeability).
-    """
-
     def __init__(
         self,
         alpha: float = 0.05,
         window_size: int = 500,
         eta: float = 0.01,
+        initial_level: float = 0.9,
         initial_threshold: float = 0.5,
     ):
         self.alpha = alpha
         self.window_size = window_size
         self.eta = eta
-        self._threshold = initial_threshold
+        self.level = float(initial_level)
+        self._threshold = float(initial_threshold)
         self.window: deque = deque(maxlen=window_size)
         self._n_updates = 0
 
@@ -32,59 +41,30 @@ class OnlineConformal:
 
     @threshold.setter
     def threshold(self, value: float) -> None:
-        self._threshold = value
+        self._threshold = float(value)
 
     def update(self, score: float, is_correct: bool) -> None:
-        """Update threshold after observing a labeled sample.
-
-        ACI update rule:
-            α_{t+1} = α_t + η(α - I(rejected) * I(correct))
-
-        Args:
-            score: Non-conformity score (higher = less conforming).
-            is_correct: Whether the prediction was correct (label=0).
-        """
-        self.window.append((score, is_correct))
+        self.window.append(float(score))
         self._n_updates += 1
 
-        # Compute empirical FDR from window
-        fdr = self._compute_fdr()
+        # Miscoverage under the CURRENT threshold.
+        rejected = score > self._threshold
+        miscoverage = 1.0 if (rejected and is_correct) else 0.0
 
-        # ACI update: adjust threshold based on FDR error
-        error = fdr - self.alpha
-        self.threshold += self.eta * error
+        # ACI: move the quantile level toward satisfying target miscoverage = alpha.
+        self.level = _clamp(self.level + self.eta * (miscoverage - self.alpha))
 
-        # Clamp threshold to [0, 1]
-        self.threshold = max(0.0, min(1.0, self.threshold))
-
-    def _compute_fdr(self) -> float:
-        """Compute False Discovery Rate from window.
-
-        FDR = FP / (FP + TP) among rejected samples.
-        """
-        if len(self.window) < 10:
-            return 0.0
-
-        scores, labels = zip(*self.window)
-
-        # Rejected = score > threshold (predicted hallucination)
-        rejected_idx = [i for i, s in enumerate(scores) if s > self.threshold]
-        if len(rejected_idx) == 0:
-            return 0.0
-
-        # False positives: rejected but actually correct (label=0)
-        fp = sum(1 for i in rejected_idx if labels[i] is True)
-        return fp / len(rejected_idx)
+        # Recompute the threshold as the lambda_t quantile of the window.
+        if len(self.window) >= 2:
+            self._threshold = float(np.quantile(np.array(self.window), self.level))
 
     def should_abstain(self, score: float) -> bool:
-        """Return True if score exceeds threshold (risk too high)."""
-        return score > self.threshold
+        return score > self._threshold
 
     def get_stats(self) -> dict:
-        """Get current statistics."""
         return {
-            "threshold": self.threshold,
+            "threshold": self._threshold,
+            "level": self.level,
             "window_size": len(self.window),
             "n_updates": self._n_updates,
-            "fdr": self._compute_fdr(),
         }

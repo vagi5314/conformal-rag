@@ -67,7 +67,7 @@ def validate_label_distribution(labels: List[int]) -> Tuple[bool, str]:
     if not labels:
         return False, "Empty label list"
 
-    if not all(l in (0, 1) for l in labels):
+    if not all(lbl in (0, 1) for lbl in labels):
         return False, "Labels must be 0 (correct) or 1 (hallucination)"
 
     unique = set(labels)

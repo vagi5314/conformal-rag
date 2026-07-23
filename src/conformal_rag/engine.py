@@ -10,10 +10,11 @@ import numpy as np
 from conformal_rag.models import (
     ConformalResult,
     CalibrationStats,
-    ScoringBreakdown,
 )
 from conformal_rag.scoring import ScoringPipeline
 from conformal_rag.guards import clamp_alpha
+from conformal_rag.monitoring import FDRMonitor
+from conformal_rag.online import OnlineConformal
 
 
 class ConformalRAGEngine:
@@ -27,10 +28,14 @@ class ConformalRAGEngine:
         alpha: float = 0.05,
         scoring: Optional[ScoringPipeline] = None,
         weights: tuple[float, float] = (0.6, 0.4),
+        fdr_monitor: Optional[FDRMonitor] = None,
+        online: Optional[OnlineConformal] = None,
     ):
         self.alpha = clamp_alpha(alpha)
         self.scoring = scoring or ScoringPipeline(weights=weights)
         self.weights = weights
+        self.fdr_monitor = fdr_monitor or FDRMonitor(alpha=self.alpha)
+        self.online = online
         self._threshold: Optional[float] = None
         self._calibration_scores: List[float] = []
         self._calibration_labels: List[int] = []
@@ -66,7 +71,7 @@ class ConformalRAGEngine:
         self._calibration_labels = labels
 
         # Compute threshold: percentile of scores for correct samples
-        correct_scores = [s for s, l in zip(scores, labels) if l == 0]
+        correct_scores = [s for s, lbl in zip(scores, labels) if lbl == 0]
         if correct_scores:
             # Threshold = (1-α) percentile of correct scores
             self._threshold = float(np.percentile(
@@ -79,8 +84,8 @@ class ConformalRAGEngine:
         rejected = [s for s in scores if s > self._threshold]
         if rejected:
             false_positives = sum(
-                1 for s, l in zip(scores, labels)
-                if s > self._threshold and l == 0
+                1 for s, lbl in zip(scores, labels)
+                if s > self._threshold and lbl == 0
             )
             estimated_fdr = false_positives / len(rejected)
         else:
@@ -150,13 +155,45 @@ class ConformalRAGEngine:
             latency_ms=latency_ms,
         )
 
+    def record(
+        self,
+        query: str,
+        context: str,
+        response: str,
+        actual_hallucination: bool,
+        domain: Optional[str] = None,
+    ) -> None:
+        """Feed a labeled observation into monitoring and (optional) online adaptation."""
+        breakdown = self.scoring.score(query, context, response)
+        score = breakdown.final_score
+        threshold = self._threshold if self._threshold is not None else 0.5
+        predicted_hallucination = score > threshold
+
+        self.fdr_monitor.record(
+            predicted_hallucination=predicted_hallucination,
+            actual_hallucination=actual_hallucination,
+        )
+        if self.online is not None:
+            self.online.update(score, is_correct=not actual_hallucination)
+            self._threshold = self.online.threshold
+
     def _compute_confidence_interval(
         self, scores: list, labels: list, alpha: float
     ) -> tuple:
+        """One-sided conformal lower bound for the risk score.
+
+        Uses the finite-sample (n+1)(1-alpha) quantile of the correct-class
+        calibration scores (Vovk et al. conformal PI). Guarantees, under
+        exchangeability, that P(risk_score >= lower) >= 1-alpha.
+        """
         if not scores:
             return (0.0, 1.0)
-        correct_scores = [s for s, l in zip(scores, labels) if l == 0]
+        correct_scores = [s for s, lbl in zip(scores, labels) if lbl == 0]
         if not correct_scores:
             return (0.0, 1.0)
-        quantile = float(np.quantile(correct_scores, 1 - alpha))
-        return (quantile, 1.0)
+        n = len(correct_scores)
+        k = int(np.ceil((n + 1) * (1 - alpha)))
+        k = max(1, min(k, n))
+        sorted_s = sorted(correct_scores)
+        lower = float(sorted_s[k - 1])
+        return (lower, 1.0)

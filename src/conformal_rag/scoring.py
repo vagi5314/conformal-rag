@@ -111,10 +111,11 @@ class LLMJudge:
         """
         prompt = self._build_prompt(query, context, response)
         result = self.client.complete(prompt)
-        try:
-            return float(result.strip())
-        except ValueError:
-            return 0.5
+        match = re.search(r"(\d+\.?\d*)", result)
+        if match:
+            value = float(match.group(1))
+            return max(0.0, min(1.0, value))
+        return 0.5
 
 
 class ScoringPipeline:
