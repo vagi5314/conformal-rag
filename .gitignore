@@ -63,3 +63,7 @@ Thumbs.db
 # Benchmark output
 benchmarks/results/
 benchmarks/reports/
+
+# Stray files
+excalidraw.log
+docs/*.html
