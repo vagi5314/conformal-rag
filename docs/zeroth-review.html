@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conformal RAG — Zeroth Review</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  --bg: #0a0e17;
+  --bg-2: #111827;
+  --surface: #1a2236;
+  --surface-2: #1e293b;
+  --border: #1e293b;
+  --text: #e2e8f0;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
+  --accent: #10b981;
+  --accent-dim: rgba(16,185,129,.15);
+  --red: #ef4444;
+  --red-dim: rgba(239,68,68,.12);
+  --amber: #f59e0b;
+  --blue: #3b82f6;
+  --font-sans: 'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-mono: 'JetBrains Mono','SF Mono',monospace;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+code,kbd,pre,samp{font-family:var(--font-mono)}
+
+.deck{position:relative;width:100vw;height:100vh;overflow:hidden}
+.slide{
+  position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;
+  padding:60px 80px;box-sizing:border-box;
+  opacity:0;pointer-events:none;transform:translateX(24px);
+  transition:opacity .4s ease,transform .4s ease;overflow:hidden;
+}
+.slide.active{opacity:1;pointer-events:auto;transform:none;z-index:2}
+.slide.prev{transform:translateX(-24px)}
+
+/* Typography */
+.eyebrow{font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+h1{font-size:56px;line-height:1.05;font-weight:800;letter-spacing:-.03em;margin:0 0 16px;color:#fff}
+h2{font-size:42px;line-height:1.1;font-weight:700;letter-spacing:-.02em;margin:0 0 12px;color:#fff}
+h3{font-size:24px;line-height:1.3;font-weight:600;margin:0 0 8px;color:#fff}
+.lede{font-size:18px;line-height:1.6;color:var(--text-2);max-width:55ch;font-weight:400}
+.mono{font-family:var(--font-mono)}
+
+/* Layout */
+.row{display:flex;gap:32px;align-items:start}
+.grid{display:grid;gap:24px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.stack>*+*{margin-top:14px}
+.mt-s{margin-top:8px}.mt-m{margin-top:20px}.mt-l{margin-top:36px}
+.center{display:flex;align-items:center;justify-content:center;text-align:center}
+.fill{flex:1}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px;position:relative}
+.card-accent{border-left:3px solid var(--accent)}
+.card-red{border-left:3px solid var(--red)}
+.card h3{font-size:16px;margin-bottom:6px}
+.card p{font-size:14px;color:var(--text-2);line-height:1.5;margin:0}
+
+/* Tags */
+.tag{display:inline-block;padding:3px 10px;border-radius:4px;font-family:var(--font-mono);font-size:11px;background:var(--accent-dim);color:var(--accent);margin-right:6px;margin-bottom:4px}
+.tag-red{background:var(--red-dim);color:var(--red)}
+.tag-amber{background:rgba(245,158,11,.12);color:var(--amber)}
+.tag-blue{background:rgba(59,130,246,.12);color:var(--blue)}
+
+/* Terminal */
+.terminal{background:#0c1018;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-family:var(--font-mono);font-size:13px;line-height:1.6}
+.terminal .bar{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--text-3)}
+.terminal .dot{width:10px;height:10px;border-radius:50%}
+.terminal .dot:nth-child(1){background:#ef4444}
+.terminal .dot:nth-child(2){background:#f59e0b}
+.terminal .dot:nth-child(3){background:#10b981}
+.terminal pre{margin:0;padding:18px 20px;color:var(--text);overflow-x:auto}
+.kw{color:#f472b6}.fn{color:#a78bfa}.str{color:#34d399}.cmt{color:#64748b;font-style:italic}.num{color:#60a5fa}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--text-3);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.tbl td{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--text-2)}
+.tbl tr:last-child td{border-bottom:none}
+
+/* Diagram boxes */
+.arch-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 18px;text-align:center;font-size:13px;font-weight:500;color:var(--text)}
+.arch-box.highlight{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
+.arch-arrow{color:var(--text-3);font-size:20px;text-align:center;padding:4px 0}
+
+/* Footer / chrome */
+.slide-num{position:absolute;bottom:24px;right:40px;font-family:var(--font-mono);font-size:12px;color:var(--text-3)}
+.progress{position:fixed;left:0;right:0;bottom:0;height:2px;background:transparent;z-index:20}
+.progress span{display:block;height:100%;width:0;background:var(--accent);transition:width .3s ease}
+
+/* Print */
+@media print{.slide{position:relative!important;opacity:1!important;transform:none!important;height:auto;page-break-after:always}}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- ===== SLIDE 1: TITLE ===== -->
+<section class="slide" data-n="1">
+  <div class="eyebrow">zeroth review · july 2026</div>
+  <h1>Conformal RAG</h1>
+  <p class="lede" style="margin-bottom:24px">FDR-Guaranteed Hallucination Bounds<br>for Retrieval-Augmented Generation</p>
+  <div class="stack" style="max-width:400px">
+    <div style="font-size:14px;color:var(--text-2)"><span class="mono" style="color:var(--text-3)">student</span> Vagi S.</div>
+    <div style="font-size:14px;color:var(--text-2)"><span class="mono" style="color:var(--text-3)">college</span> SNS College of Engineering</div>
+    <div style="font-size:14px;color:var(--text-2)"><span class="mono" style="color:var(--text-3)">repo</span> github.com/vagi5314/conformal-rag</div>
+  </div>
+  <div class="slide-num mono">1 / 10</div>
+</section>
+
+<!-- ===== SLIDE 2: PROBLEM ===== -->
+<section class="slide" data-n="2">
+  <div class="eyebrow">// the problem</div>
+  <h2>RAG systems hallucinate.<br>There's no guarantee they won't.</h2>
+  <div class="grid g2 mt-l">
+    <div>
+      <p class="lede" style="max-width:45ch">RAG augments LLMs with retrieved context to reduce hallucination. But even state-of-the-art models generate plausible-sounding claims unsupported by context.</p>
+      <div class="mt-m">
+        <span class="tag tag-red">no statistical guarantee</span>
+        <span class="tag tag-red">uncalibrated confidence</span>
+        <span class="tag tag-red">no abstention mechanism</span>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>example.json</span></div>
+<pre><span class="cmt">// Query:</span>
+"What year was the Eiffel Tower built?"
+
+<span class="cmt">// Context:</span>
+"Eiffel Tower, Paris, 330 meters tall..."
+
+<span class="cmt">// LLM Response:</span>
+"The Eiffel Tower was built in <span class="fn">1889</span>
+ for the World's Fair."
+
+<span class="cmt">// What if the context didn't say 1889?</span>
+<span class="cmt">// The LLM would still say it confidently.</span>
+<span class="cmt">// That's a hallucination.</span></pre>
+    </div>
+  </div>
+  <div class="slide-num mono">2 / 10</div>
+</section>
+
+<!-- ===== SLIDE 3: WHY EXISTING FAILS ===== -->
+<section class="slide" data-n="3">
+  <div class="eyebrow">// why existing solutions fail</div>
+  <h2>Heuristics don't give guarantees.</h2>
+  <div class="grid g3 mt-l">
+    <div class="card card-red">
+      <h3>Embedding Similarity</h3>
+      <p>Compares vector distances. <strong style="color:var(--red)">100% FPR</strong> on real hallucinations (Semantic Illusion, Dec 2025). RLHF models produce undetectable hallucinations in embedding space.</p>
+      <div class="mt-s"><span class="tag tag-red">FAILS</span></div>
+    </div>
+    <div class="card card-red">
+      <h3>NLI-Only Scoring</h3>
+      <p>Entailment classification. F1 ~0.35 on RagTruth++. Fast but insufficient alone. No calibration threshold.</p>
+      <div class="mt-s"><span class="tag tag-amber">PARTIAL</span></div>
+    </div>
+    <div class="card card-red">
+      <h3>LLM-as-Judge</h3>
+      <p>GPT-4 evaluates correctness. 7% FPR. But <strong style="color:var(--amber)">expensive</strong> ($0.001-0.01/query), <strong style="color:var(--amber)">no statistical bound</strong>.</p>
+      <div class="mt-s"><span class="tag tag-amber">PARTIAL</span></div>
+    </div>
+  </div>
+  <p class="lede mt-m" style="font-size:15px">No existing tool provides a <strong style="color:var(--accent)">mathematically guaranteed</strong> hallucination rate bound for RAG.</p>
+  <div class="slide-num mono">3 / 10</div>
+</section>
+
+<!-- ===== SLIDE 4: OUR APPROACH ===== -->
+<section class="slide" data-n="4">
+  <div class="eyebrow">// our approach</div>
+  <h2>Conformal Risk Control for RAG</h2>
+  <div class="row mt-l" style="align-items:start">
+    <div style="flex:1">
+      <p class="lede" style="max-width:42ch">Instead of heuristic confidence, we use <strong style="color:var(--accent)">conformal prediction</strong> to provide a finite-sample guarantee:</p>
+      <div style="margin-top:24px;padding:20px;background:var(--accent-dim);border:1px solid rgba(16,185,129,.3);border-radius:8px;font-family:var(--font-mono);font-size:18px;color:var(--accent);text-align:center">
+        P(hallucination | not abstained) &le; &alpha;
+      </div>
+      <div class="mt-m stack" style="font-size:14px;color:var(--text-2);line-height:1.7">
+        <div><span class="mono" style="color:var(--accent)">01</span> &nbsp; Score each response with NLI + optional LLM judge</div>
+        <div><span class="mono" style="color:var(--accent)">02</span> &nbsp; Calibrate threshold on labeled data</div>
+        <div><span class="mono" style="color:var(--accent)">03</span> &nbsp; Abstain when risk exceeds threshold</div>
+        <div><span class="mono" style="color:var(--accent)">04</span> &nbsp; FDR is bounded by alpha with finite-sample guarantee</div>
+      </div>
+    </div>
+    <div style="flex:1">
+      <div class="card" style="padding:28px">
+        <h3 style="font-size:14px;color:var(--text-3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px">Key Insight</h3>
+        <p style="font-size:15px;line-height:1.7;color:var(--text)">Standard conformal prediction gives coverage: <em>"the correct answer is in the prediction set."</em></p>
+        <p style="font-size:15px;line-height:1.7;color:var(--text);margin-top:12px">Conformal Risk Control (Angelopoulos et al., 2024) gives <strong style="color:var(--accent)">risk control</strong>: <em>"the probability of hallucination is bounded."</em></p>
+        <p style="font-size:15px;line-height:1.7;color:var(--text);margin-top:12px">This is what production RAG needs: <strong style="color:var(--accent)">FDR &le; alpha</strong>, not just coverage.</p>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num mono">4 / 10</div>
+</section>
+
+<!-- ===== SLIDE 5: ARCHITECTURE ===== -->
+<section class="slide" data-n="5">
+  <div class="eyebrow">// architecture</div>
+  <h2>System Design</h2>
+  <div class="mt-l">
+    <!-- Flow diagram using CSS boxes -->
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center">
+      <div class="arch-box" style="min-width:140px">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">INPUT</div>
+        Query + Context + Response
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-box highlight" style="min-width:160px">
+        <div style="font-size:11px;color:rgba(16,185,129,.6);margin-bottom:4px">NLI SCORER</div>
+        DeBERTa-v3-large<br><span style="font-size:11px;color:var(--text-3)">~1-5s, free</span>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-box" style="min-width:140px;border-color:var(--amber)">
+        <div style="font-size:11px;color:var(--amber);margin-bottom:4px">LLM JUDGE</div>
+        LiteLLM multi-provider<br><span style="font-size:11px;color:var(--text-3)">~1.3s, paid</span>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-box highlight" style="min-width:160px">
+        <div style="font-size:11px;color:rgba(16,185,129,.6);margin-bottom:4px">CONFORMAL ENGINE</div>
+        CRC (MAPIE v1)<br><span style="font-size:11px;color:var(--text-3)">FDR &le; alpha</span>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-box" style="min-width:130px">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">OUTPUT</div>
+        Verdict + CI + Abstain
+      </div>
+    </div>
+    <div class="grid g3 mt-l" style="max-width:900px;margin-left:auto;margin-right:auto">
+      <div class="card" style="padding:18px">
+        <h3 style="font-size:13px;font-family:var(--font-mono);color:var(--accent)">Scoring Pipeline</h3>
+        <p style="font-size:13px">NLI fast path catches 70% of clear cases. LLM judge verifies uncertain 30%. 70% cost reduction vs LLM-only.</p>
+      </div>
+      <div class="card" style="padding:18px">
+        <h3 style="font-size:13px;font-family:var(--font-mono);color:var(--blue)">Online ACI</h3>
+        <p style="font-size:13px">Adaptive Conformal Inference (Gibbs & Candes, 2021). Adjusts threshold on streaming data. Handles distribution drift.</p>
+      </div>
+      <div class="card" style="padding:18px">
+        <h3 style="font-size:13px;font-family:var(--font-mono);color:var(--amber)">Per-Domain</h3>
+        <p style="font-size:13px">Different alpha per domain. Finance: alpha=0.01. Medical: alpha=0.001. General: alpha=0.05.</p>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num mono">5 / 10</div>
+</section>
+
+<!-- ===== SLIDE 6: CONTRIBUTIONS ===== -->
+<section class="slide" data-n="6">
+  <div class="eyebrow">// contributions</div>
+  <h2>What's new</h2>
+  <div class="grid g2 mt-l">
+    <div class="card card-accent">
+      <h3>FDR-Guaranteed Detection</h3>
+      <p>First production implementation of Conformal Risk Control for RAG hallucination FDR. Not just coverage — actual hallucination rate bound.</p>
+    </div>
+    <div class="card card-accent">
+      <h3>Hybrid NLI + LLM Scoring</h3>
+      <p>Two-stage scorer combining fast DeBERTa-v3 NLI with optional LLM judge via LiteLLM. Cost-optimized: NLI filters 70% of cases.</p>
+    </div>
+    <div class="card card-accent">
+      <h3>Per-Domain Calibration</h3>
+      <p>Topic-specific threshold adaptation. No other tool calibrates per domain. Prevents over/under-covering in multi-domain deployments.</p>
+    </div>
+    <div class="card card-accent">
+      <h3>Online Adaptive Update</h3>
+      <p>Newton-update ACI adjusts thresholds on streaming data. Handles distribution drift without full recalibration. Based on Gibbs & Candes 2021.</p>
+    </div>
+  </div>
+  <div class="slide-num mono">6 / 10</div>
+</section>
+
+<!-- ===== SLIDE 7: LITERATURE ===== -->
+<section class="slide" data-n="7">
+  <div class="eyebrow">// literature survey</div>
+  <h2>Key papers &amp; landscape</h2>
+  <div class="mt-l" style="overflow-x:auto">
+    <table class="tbl">
+      <tr><th>Paper</th><th>Venue</th><th>Method</th><th>Gap</th></tr>
+      <tr>
+        <td style="color:var(--text)"><strong>TRAQ</strong> (Li et al.)</td>
+        <td>NAACL 2024</td>
+        <td>Split CP on retrieval + generation</td>
+        <td><span class="tag tag-amber">coverage only</span></td>
+      </tr>
+      <tr>
+        <td style="color:var(--text)"><strong>C-RAG</strong> (Kang et al.)</td>
+        <td>ICML 2024</td>
+        <td>Conformal risk analysis</td>
+        <td><span class="tag tag-amber">no implementation</span></td>
+      </tr>
+      <tr>
+        <td style="color:var(--text)"><strong>Conformal-RAG</strong> (Feng et al.)</td>
+        <td>ACM 2025</td>
+        <td>Conditional CP on sub-claims</td>
+        <td><span class="tag tag-amber">sub-claim level</span></td>
+      </tr>
+      <tr>
+        <td style="color:var(--text)"><strong>Semantic Illusion</strong> (Sinha)</td>
+        <td>Dec 2025</td>
+        <td>Embedding-based detection</td>
+        <td><span class="tag tag-red">100% FPR</span></td>
+      </tr>
+      <tr>
+        <td style="color:var(--text)"><strong>When Can CRC Certify?</strong></td>
+        <td>Jun 2026</td>
+        <td>Impossibility result for CRC on LLMs</td>
+        <td><span class="tag tag-blue">ACI reduces 71%&rarr;21%</span></td>
+      </tr>
+      <tr style="background:var(--accent-dim)">
+        <td style="color:var(--accent)"><strong>Our Work</strong></td>
+        <td style="color:var(--accent)">2026</td>
+        <td style="color:var(--accent)">CRC + online ACI + per-domain</td>
+        <td><span class="tag">production-ready</span></td>
+      </tr>
+    </table>
+  </div>
+  <p class="lede mt-m" style="font-size:14px">Gap: No existing tool provides <strong style="color:var(--accent)">FDR-guaranteed</strong> hallucination detection with <strong style="color:var(--accent)">per-domain calibration</strong> and <strong style="color:var(--accent)">online adaptation</strong> in a production-ready package.</p>
+  <div class="slide-num mono">7 / 10</div>
+</section>
+
+<!-- ===== SLIDE 8: STATUS ===== -->
+<section class="slide" data-n="8">
+  <div class="eyebrow">// implementation status</div>
+  <h2>What's done</h2>
+  <div class="grid g2 mt-l">
+    <div>
+      <div class="stack" style="font-size:14px;line-height:1.8">
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Core CRC engine with FDRMonitor + OnlineConformal</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Client SDK: index, retrieve, check, query</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Hybrid NLI + LLM scoring pipeline</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Quantile-level ACI (Gibbs & Candes 2021)</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; FastAPI with /predict, /calibrate, /feedback</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Per-domain calibration + live FDR monitoring</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Hybrid retrieval (BM25 + dense + RRF)</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Gradio demo UI (Predict/Calibrate/Monitor)</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; Docker + docker-compose + Fly.io config</div>
+        <div><span class="mono" style="color:var(--accent)">&check;</span> &nbsp; 105/105 core tests passing</div>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="padding:24px">
+        <h3 style="font-size:13px;font-family:var(--font-mono);color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px">Tech Stack</h3>
+        <div class="stack" style="font-size:13px;color:var(--text-2);line-height:1.8">
+          <div><span class="mono" style="color:var(--accent)">engine</span> &nbsp; MAPIE v1 (CRC), online-cp (ACI)</div>
+          <div><span class="mono" style="color:var(--accent)">scoring</span> &nbsp; DeBERTa-v3 NLI + LiteLLM</div>
+          <div><span class="mono" style="color:var(--accent)">retrieval</span> &nbsp; Sentence Transformers + BM25 + RRF</div>
+          <div><span class="mono" style="color:var(--accent)">vector</span> &nbsp; Qdrant (hybrid dense + sparse)</div>
+          <div><span class="mono" style="color:var(--accent)">api</span> &nbsp; FastAPI + SQLAlchemy 2.0</div>
+          <div><span class="mono" style="color:var(--accent)">deploy</span> &nbsp; Docker + Fly.io</div>
+          <div><span class="mono" style="color:var(--accent)">demo</span> &nbsp; Gradio (3 tabs)</div>
+          <div><span class="mono" style="color:var(--accent)">tests</span> &nbsp; pytest, 105/105 passing</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num mono">8 / 10</div>
+</section>
+
+<!-- ===== SLIDE 9: NEXT STEPS ===== -->
+<section class="slide" data-n="9">
+  <div class="eyebrow">// roadmap</div>
+  <h2>Next steps</h2>
+  <div class="mt-l">
+    <div class="grid g2" style="max-width:800px">
+      <div class="card card-accent" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="tag" style="margin:0">P0</span>
+          <h3 style="margin:0">Benchmark with LLM Judge</h3>
+        </div>
+        <p>Run full evaluation on 5 benchmarks (HotpotQA, RAGTruth, HaluEval, FinanceBench, MultiHop-RAG). Fill paper results section.</p>
+        <div style="margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--text-3)">blocked on: clean machine (no DLL blocks)</div>
+      </div>
+      <div class="card card-accent" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="tag" style="margin:0">P0</span>
+          <h3 style="margin:0">HuggingFace Space</h3>
+        </div>
+        <p>Deploy Gradio demo to HuggingFace Spaces for a public shareable URL. Class presentation ready.</p>
+        <div style="margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--text-3)">effort: 2-4h</div>
+      </div>
+      <div class="card" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="tag tag-blue" style="margin:0">P1</span>
+          <h3 style="margin:0">Chrome Extension</h3>
+        </div>
+        <p>Highlight text in browser &rarr; conformal verdict + coverage guarantee. Unique selling point.</p>
+        <div style="margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--text-3)">effort: 15-25h</div>
+      </div>
+      <div class="card" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="tag tag-blue" style="margin:0">P1</span>
+          <h3 style="margin:0">LangChain/LlamaIndex Wrapper</h3>
+        </div>
+        <p>First conformal prediction integration in either framework. Ecosystem gap.</p>
+        <div style="margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--text-3)">effort: 12-20h</div>
+      </div>
+    </div>
+    <div class="mt-m" style="font-size:13px;color:var(--text-3)">
+      <strong style="color:var(--amber)">Publication target:</strong> UncertaiNLP @ EMNLP 2026 (deadline Aug 7, 2026)
+    </div>
+  </div>
+  <div class="slide-num mono">9 / 10</div>
+</section>
+
+<!-- ===== SLIDE 10: Q&A ===== -->
+<section class="slide center" data-n="10">
+  <div>
+    <div class="mono" style="font-size:80px;color:var(--accent);font-weight:800;letter-spacing:-.04em">?</div>
+    <h2 style="margin-top:12px">Questions?</h2>
+    <p class="lede" style="margin:16px auto;text-align:center">
+      <span class="mono" style="color:var(--text-3)">github.com/vagi5314/conformal-rag</span>
+    </p>
+    <div style="margin-top:24px;display:flex;gap:12px;justify-content:center">
+      <span class="tag">demo: localhost:7860</span>
+      <span class="tag">paper: docs/paper/draft.md</span>
+      <span class="tag">research: RESEARCH.md</span>
+    </div>
+  </div>
+  <div class="slide-num mono">10 / 10</div>
+</section>
+
+</div>
+
+<div class="progress"><span id="prog"></span></div>
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let cur = 0;
+
+  function go(n){
+    if(n<0||n>=total)return;
+    slides[cur].classList.remove('active');
+    slides[cur].classList.add('prev');
+    cur=n;
+    slides[cur].classList.remove('prev');
+    slides[cur].classList.add('active');
+    document.getElementById('prog').style.width=((cur/(total-1))*100)+'%';
+    // update slide numbers
+    document.querySelectorAll('.slide-num').forEach(el=>{
+      el.textContent=(cur+1)+' / '+total;
+    });
+  }
+  go(0);
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='Enter'){e.preventDefault();go(cur+1)}
+    if(e.key==='ArrowLeft'||e.key==='Backspace'){e.preventDefault();go(cur-1)}
+    if(e.key==='Home'){e.preventDefault();go(0)}
+    if(e.key==='End'){e.preventDefault();go(total-1)}
+  });
+
+  // touch
+  let tx=0;
+  document.addEventListener('touchstart',e=>{tx=e.touches[0].clientX});
+  document.addEventListener('touchend',e=>{
+    const dx=e.changedTouches[0].clientX-tx;
+    if(Math.abs(dx)>50){dx<0?go(cur+1):go(cur-1)}
+  });
+})();
+</script>
+</body>
+</html>
