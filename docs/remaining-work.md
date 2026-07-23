@@ -1,81 +1,77 @@
 # Remaining Work — Conformal RAG Platform
 
-**Branch:** `dev` (active), `main` (releases)  
-**Last Commit:** `e34fa0f` — "feat: complete Phases 2-4"  
-**Tests:** 161/161 passing
+**Branch:** `dev` (active)  
+**Last Session:** 2026-07-23 — 10 critical fixes verified, 105/105 tests passing
 
 ---
 
-## 1. LLM Judge Benchmarking (unblocks RAGTruth coverage)
-
-The NLI-only pipeline is conservative — RAGTruth abstains 100%. The LLM judge resolves the coverage gap.
+## 1. Gradio Demo UI (P0 — Demo Centerpiece)
 
 | Task | Prerequisites | Effort |
 |------|---------------|--------|
-| Run `python -m benchmarks.runner --llm-judge --limit 50` | API keys in Windows Credential Manager (`keyring`): Groq, Together, SiliconFlow | 5 min |
-| Fill paper `docs/paper/draft.md` Section 6 with real FDR/coverage/latency/cost numbers | Above run complete | 30 min |
+| Build Gradio app with prediction set visualization | Working engine + scoring | 4-8h |
+| Deploy to HuggingFace Spaces | Gradio app complete | 2-4h |
+| Add live benchmark results to demo | Benchmark run complete | 2h |
 
-**Key:** Without this, the paper's results section has gap rows.
+**Why:** Every award-winning project has a live demo. Gradio gives `share=True` public URL instantly.
 
 ---
 
-## 2. Deployment (Docker Compose)
+## 2. Run Benchmarks with LLM Judge
 
 | Task | Prerequisites | Effort |
 |------|---------------|--------|
-| `docker compose up -d` from project root | Docker Desktop running on host | 2 min |
-| Verify all 4 services (Qdrant, Redis, PostgreSQL, app) come up healthy | Docker running | 5 min |
-| `http://localhost:8000/health` returns `{"status":"ok"}` | Services healthy | 1 min |
+| Run `python -m benchmarks.runner --llm-judge --limit 50` on clean machine | API keys (Groq, Together, SiliconFlow), no AppLocker DLL block | 5 min |
+| Fill paper Section 6 with real FDR/coverage/latency/cost numbers | Above run complete | 30 min |
 
-**Gotcha:** `docker-compose.yml` assumes CPU architecture. The NLI model loading needs ~2GB RAM on the app container. If OOM on default Docker Desktop, increase memory in Docker settings.
+**Why:** Without this, the paper's results section has gap rows. NLI-only path is conservative — RAGTruth abstains 100%.
 
 ---
 
-## 3. Deploy to Fly.io
+## 3. Chrome Extension (P1 — "Wow" Factor)
 
 | Task | Prerequisites | Effort |
 |------|---------------|--------|
-| `flyctl auth login` | Fly.io account, flyctl installed | 5 min |
-| `flyctl launch` (uses `fly.toml`) | Auth'd | 2 min |
-| Provision Fly Postgres: `flyctl postgres create` | Fly account | 5 min |
-| Provision Fly Redis (Upstash): `flyctl redis create` | Fly account | 3 min |
-| Set secrets: `flyctl secrets set CONFORMAL_RAG_POSTGRES_URL=... CONFORMAL_RAG_REDIS_URL=...` | DB + Redis provisioned | 2 min |
-| `flyctl deploy` | Everything above | 5 min |
+| Build Chrome MV3 extension shell (content script + service worker) | None | 4-6h |
+| Wire to FastAPI backend for conformal verdict | Backend deployed | 4h |
+| UI polish: verdict badge + coverage guarantee display | Shell complete | 6-8h |
+| Testing + Chrome Web Store prep | All above | 3h |
 
-**Gotcha:** The DeBERTa model (~1.6GB) downloads on first `/predict` call. Set `TRANSFORMERS_CACHE` to a persistent volume or expect ~2 min cold start.
+**Why:** No existing fact-checking extension offers statistical coverage guarantees. Unique selling point.
 
 ---
 
-## 4. PyPI Publication
+## 4. LangChain/LlamaIndex Wrapper (P1 — Ecosystem)
 
 | Task | Prerequisites | Effort |
 |------|---------------|--------|
-| Create PyPI API token at https://pypi.org/manage/account/ | PyPI account | 5 min |
-| Add `PYPI_TOKEN` secret to GitHub repo: `gh secret set PYPI_TOKEN` | GitHub CLI or web UI | 2 min |
-| Tag a release: `git tag v0.1.0 && git push origin v0.1.0` | Clean working tree | 1 min |
-| Workflow auto-publishes to PyPI via `.github/workflows/pypi.yml` | Tag pushed | ~3 min |
+| LangChain `BaseRetriever` wrapper with conformal metadata | Working client SDK | 6h |
+| LlamaIndex `QueryEngine` wrapper | Working client SDK | 6h |
+| Tests + docs | Wrappers complete | 4h |
+
+**Why:** No existing conformal prediction integration in either framework. Fills genuine ecosystem gap.
 
 ---
 
-## 5. arXiv Submission
+## 5. Deploy to Production
 
 | Task | Prerequisites | Effort |
 |------|---------------|--------|
-| Fill `docs/paper/draft.md` Section 6 with LLM-judge results | LLM-judge run complete | 30 min |
-| Convert `draft.md` to LaTeX (`docs/paper/paper.tex`) | Draft filled | 1–2 hr |
-| Add author metadata, abstract, references | LaTeX file complete | 30 min |
-| Upload to arXiv | arXiv account, .tex + figures | 15 min |
-
-**Gotcha:** arXiv requires LaTeX source, not Markdown. The `draft.md` is designed to be a 1:1 translation guide — section headers map directly to LaTeX `\section{}`.
+| `docker compose up -d` (verify all services healthy) | Docker Desktop | 5 min |
+| Fly.io deploy (fly.toml ready) | Account + DB provisioned | 25 min |
+| HuggingFace Spaces deploy | Gradio app ready | 5 min |
 
 ---
 
-## 6. Open Source Launch
+## 6. Publication
 
 | Task | Prerequisites | Effort |
 |------|---------------|--------|
-| Make repo public: GitHub → Settings → Danger Zone → Change visibility | arXiv submission done (pre-print) | 1 min |
-| Announce on Twitter / LinkedIn | Repo public | 15 min |
+| **UncertaiNLP @ EMNLP 2026** — deadline Aug 7, 2026 | LLM-judge benchmark results, ablation study | 2-3 weeks |
+| COPA 2026 — deadline passed (May 20) | Missed, target next year | — |
+| arXiv preprint | Paper draft filled | 2-4h after draft |
+
+**Why:** UncertaiNLP explicitly lists "conformal prediction" as a topic. Workshop paper is easier to accept, still peer-reviewed.
 
 ---
 
@@ -83,11 +79,12 @@ The NLI-only pipeline is conservative — RAGTruth abstains 100%. The LLM judge 
 
 | Priority | Task | Blocked By | Effort |
 |----------|------|------------|--------|
-| 🔴 P0 | LLM-judge benchmark run | API keys | 5 min |
-| 🟡 P1 | Docker compose up | Docker Desktop | 5 min |
+| 🔴 P0 | Gradio demo + HuggingFace Space | None | 6-12h |
+| 🔴 P0 | Benchmark run with LLM judge | Clean machine + API keys | 5 min + 30 min |
+| 🟡 P1 | Chrome extension | Backend deployed | 15-25h |
+| 🟡 P1 | LangChain/LlamaIndex wrapper | Working client SDK | 12-20h |
 | 🟡 P1 | Fly.io deploy | Account + DB setup | 25 min |
-| 🟡 P1 | arXiv submission | LLM-judge results | 2.5 hr |
-| 🟢 P2 | PyPI publish | — | 10 min |
-| 🟢 P2 | Open source launch | arXiv done | 15 min |
+| 🟢 P2 | Publication (UncertaiNLP) | Benchmark results | 2-3 weeks |
+| 🟢 P2 | Slack/Discord bot | Backend deployed | 15-20h |
 
-**Tags:** `P0` = blocks paper, `P1` = blocks deployment, `P2` = nice-to-have
+**Total P0+P1: ~37-63h (1-2 weeks focused work)**
