@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from conformal_rag.engine import ConformalRAGEngine
 from conformal_rag.domain import DomainManager
+from conformal_rag.guards import clamp_alpha
 from conformal_rag.models import ConformalResult, CalibrationStats, Document
 from conformal_rag.retrieval import HybridRetriever
 
@@ -78,6 +79,20 @@ class ConformalRAG:
         if context is None:
             context = self.retrieve(query)
         context_str = "\n".join(context) if context else ""
+
+        # Use the per-domain manager when it can apply a calibrated threshold:
+        # an explicit registered domain, or auto-routing once at least one
+        # registered domain is calibrated. Otherwise the main engine handles it.
+        dm = self.domain_manager
+        use_domain_manager = (
+            domain is not None and domain in dm.domains
+        ) or (
+            domain is None and any(e.calibrated for e in dm.domains.values())
+        )
+        if use_domain_manager:
+            return dm.predict(
+                query=query, context=context_str, response=response, domain=domain
+            )
         return self.engine.predict(
             query=query,
             context=context_str,
@@ -107,7 +122,7 @@ class ConformalRAG:
     def calibrate(self, domain: str = "default", alpha: Optional[float] = None,
                   data: Optional[list] = None) -> CalibrationStats:
         if alpha is not None:
-            self.engine.alpha = alpha
+            self.engine.alpha = clamp_alpha(alpha)
         if data is None:
             data = []
         return self.engine.calibrate(
