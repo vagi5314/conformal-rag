@@ -59,6 +59,7 @@ class LLMClient:
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout=self.config.timeout,
         )
         if self.usage_callback is not None:
             usage = getattr(response, "usage", None)

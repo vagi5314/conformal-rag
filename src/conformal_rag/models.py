@@ -69,6 +69,7 @@ class ConformalResult(BaseModel):
     risk_score: float = Field(ge=0.0)
     risk_bound: float = Field(ge=0.0)
     abstained: bool
+    calibrated: bool = False
     confidence_interval: tuple[float, float]
     scoring_breakdown: ScoringBreakdown
     domain: str = "default"
@@ -113,3 +114,4 @@ class CalibrationStats(BaseModel):
     estimated_fdr: float
     coverage: float
     weights: tuple[float, float] = (0.6, 0.4)
+    warnings: list[str] = Field(default_factory=list)
