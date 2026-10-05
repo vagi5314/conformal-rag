@@ -1,6 +1,5 @@
 """Tests for configuration settings."""
 
-import pytest
 from conformal_rag.config import Settings
 
 

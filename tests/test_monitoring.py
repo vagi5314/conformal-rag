@@ -1,6 +1,5 @@
 """Tests for FDR monitoring."""
 
-import pytest
 from conformal_rag.monitoring import FDRMonitor
 
 

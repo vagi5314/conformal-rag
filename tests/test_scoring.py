@@ -1,9 +1,52 @@
 """Tests for hybrid scoring pipeline."""
 
-import pytest
+import math
+
+import torch
 from unittest.mock import patch, MagicMock
 from conformal_rag.scoring import ScoringPipeline, NLIScorer, LLMJudge
 from conformal_rag.models import ScoringBreakdown
+
+
+class _FakeTokenizer:
+    """Forwards (context, claim) through so the fake model can see claims."""
+
+    def __call__(self, context, claim, **kwargs):
+        return {"claim": claim}
+
+
+class _FakeModel:
+    """Deterministic entailment probability derived from each claim's text.
+
+    Produces 3-class logits whose softmax at the entailment index equals
+    `ent_prob(claim)`, so batched and per-sample paths are directly comparable.
+    """
+
+    @staticmethod
+    def ent_prob(claim: str) -> float:
+        return (len(claim) % 9 + 1) / 10.0  # 0.1 .. 0.9, never 0 or 1
+
+    def __call__(self, **inputs):
+        claims = inputs["claim"]
+        if isinstance(claims, str):
+            claims = [claims]
+        rows = []
+        for claim in claims:
+            p = self.ent_prob(claim)
+            side = math.log((1.0 - p) / 2.0)
+            rows.append([math.log(p), side, side])
+        result = MagicMock()
+        result.logits = torch.tensor(rows, dtype=torch.float32)
+        return result
+
+
+def _fake_nli_scorer() -> NLIScorer:
+    scorer = NLIScorer()
+    scorer._tokenizer = _FakeTokenizer()
+    scorer._model = _FakeModel()
+    scorer._entailment_idx = 0
+    scorer._loaded = True
+    return scorer
 
 
 class TestNLIScorer:
@@ -18,6 +61,25 @@ class TestNLIScorer:
         with patch.object(scorer, "_predict", return_value=0.9):
             score = scorer.score("query", "context", "response")
             assert 0.0 <= score <= 1.0
+
+    def test_score_batch_matches_per_sample(self):
+        scorer = _fake_nli_scorer()
+        pairs = [
+            ("ctx one", "The Eiffel Tower is in Paris. It is tall."),
+            ("ctx two", "Python is a language."),
+            ("ctx three", "Short. Another claim here for good measure."),
+        ]
+        batched = scorer.score_batch(pairs)
+        per_sample = [scorer.score("q", c, r) for c, r in pairs]
+        assert len(batched) == len(per_sample)
+        for b, s in zip(batched, per_sample):
+            assert abs(b - s) < 1e-6
+
+    def test_score_batch_empty_decomposition_returns_neutral(self):
+        scorer = _fake_nli_scorer()
+        # Response decomposes to no claims (>10 char sentences only).
+        batched = scorer.score_batch([("ctx", "tiny")])
+        assert batched == [0.5]
 
 
 class TestLLMJudge:

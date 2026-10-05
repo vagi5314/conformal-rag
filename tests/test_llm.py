@@ -1,6 +1,5 @@
 """Tests for LLM multi-provider routing."""
 
-import pytest
 from unittest.mock import patch
 from conformal_rag.llm import LLMClient, LLMConfig
 

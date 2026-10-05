@@ -36,10 +36,8 @@ def test_latency_tracer_percentiles():
     assert p95 == pytest.approx(95.0, abs=1.0)
 
 
-from benchmarks.profiling.cost import CostTracker, track_cost
-
-
 def test_cost_tracker_record():
+    from benchmarks.profiling.cost import CostTracker
     tracker = CostTracker()
     tracker.record("groq", input_tokens=100, output_tokens=50, cost_usd=0.001)
     assert tracker.total_cost == pytest.approx(0.001)
@@ -47,6 +45,7 @@ def test_cost_tracker_record():
 
 
 def test_cost_tracker_multiple_providers():
+    from benchmarks.profiling.cost import CostTracker
     tracker = CostTracker()
     tracker.record("groq", input_tokens=100, output_tokens=50, cost_usd=0.001)
     tracker.record("together", input_tokens=200, output_tokens=100, cost_usd=0.005)
@@ -55,6 +54,7 @@ def test_cost_tracker_multiple_providers():
 
 
 def test_cost_tracker_budget_simulation():
+    from benchmarks.profiling.cost import CostTracker
     tracker = CostTracker()
     tracker.record("groq", input_tokens=100, output_tokens=50, cost_usd=0.001)
     sim = tracker.simulate_budget(avg_latency_ms=2000, qps_levels=[1, 10, 100])
@@ -66,6 +66,7 @@ def test_cost_tracker_budget_simulation():
 
 @pytest.mark.asyncio
 async def test_track_cost_decorator():
+    from benchmarks.profiling.cost import CostTracker, track_cost
     tracker = CostTracker()
 
     @track_cost(tracker, "groq")

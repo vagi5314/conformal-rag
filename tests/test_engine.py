@@ -1,7 +1,5 @@
 """Tests for Conformal Risk Control engine."""
 
-import pytest
-import numpy as np
 from unittest.mock import patch
 from conformal_rag.engine import ConformalRAGEngine
 from conformal_rag.models import ConformalResult, CalibrationStats, ScoringBreakdown

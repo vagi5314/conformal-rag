@@ -1,6 +1,5 @@
 """Tests for security guards."""
 
-import pytest
 from conformal_rag.guards import (
     sanitize_query,
     clamp_alpha,

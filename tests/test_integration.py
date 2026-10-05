@@ -1,10 +1,26 @@
 """End-to-end integration tests for the full conformal RAG pipeline."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+import numpy as np
+from unittest.mock import patch
 from conformal_rag.engine import ConformalRAGEngine
 from conformal_rag.retrieval import HybridRetriever
 from conformal_rag.models import ScoringBreakdown, Document
+
+
+class _FakeEmbedder:
+    """Deterministic embedder: keyword overlap drives the vector direction."""
+
+    KEYWORDS = ["paris", "france", "capital", "python", "programming", "language"]
+
+    def encode(self, texts):
+        single = isinstance(texts, str)
+        items = [texts] if single else list(texts)
+        vectors = []
+        for text in items:
+            tokens = set(text.lower().split())
+            vectors.append([1.0 if kw in tokens else 0.0 for kw in self.KEYWORDS])
+        arr = np.asarray(vectors, dtype=np.float32)
+        return arr[0] if single else arr
 
 
 class TestEndToEnd:
@@ -39,24 +55,11 @@ class TestEndToEnd:
             Document(text="Paris is the capital of France.", domain="geography"),
             Document(text="Python is a programming language.", domain="tech"),
         ]
+        self.retriever._embedder = _FakeEmbedder()
         self.retriever.index(docs)
-        with patch.object(self.retriever, "_get_embedder") as mock_embedder:
-            mock_emb = MagicMock()
-            mock_emb.encode.return_value.__getitem__ = lambda self, x: MagicMock(
-                __truediv__=lambda self, x: MagicMock(
-                    __truediv__=lambda self, x: MagicMock()
-                )
-            )
-            mock_embedder.return_value = mock_emb
-
-            with patch("conformal_rag.retrieval.np") as mock_np:
-                mock_np.dot.return_value = MagicMock()
-                mock_np.linalg.norm.return_value = MagicMock()
-                mock_np.argsort.return_value = MagicMock(
-                    __getitem__=lambda self, x: [0, 1]
-                )
-                results = self.retriever.retrieve("capital of France")
-                assert len(results) > 0
+        results = self.retriever.retrieve("capital of France")
+        assert len(results) > 0
+        assert results[0] == "Paris is the capital of France."
 
     def test_calibration_then_predict_flow(self):
         mock_breakdown = ScoringBreakdown(
@@ -84,9 +87,6 @@ class TestEndToEnd:
         high_breakdown = ScoringBreakdown(
             nli_score=0.9, final_score=0.9, nli_latency_ms=10.0, used_llm_judge=False
         )
-        low_breakdown = ScoringBreakdown(
-            nli_score=0.3, final_score=0.3, nli_latency_ms=10.0, used_llm_judge=False
-        )
 
         def calibrate_side_effect(q, c, r):
             return high_breakdown
@@ -97,7 +97,7 @@ class TestEndToEnd:
             responses = ["r"] * 20
             labels = [0] * 16 + [1] * 4
 
-            stats = self.engine.calibrate(queries, contexts, responses, labels)
+            self.engine.calibrate(queries, contexts, responses, labels)
 
         predict_breakdown = ScoringBreakdown(
             nli_score=0.1, final_score=0.1, nli_latency_ms=10.0, used_llm_judge=False

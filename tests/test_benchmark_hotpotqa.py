@@ -1,7 +1,7 @@
 """Tests for HotpotQA benchmark plugin."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from benchmarks.hotpotqa import HotpotQABenchmark
 from benchmarks.base import Sample
 

@@ -1,4 +1,3 @@
-import pytest
 from conformal_rag.retrieval import HybridRetriever, reciprocal_rank_fusion
 from conformal_rag.models import Document
 

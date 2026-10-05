@@ -140,15 +140,14 @@ def test_config_providers():
     assert "siliconflow" in config.providers
 
 
-from benchmarks.runner import BenchmarkRunner
-
-
 def test_runner_discovers_benchmarks():
+    from benchmarks.runner import BenchmarkRunner
     runner = BenchmarkRunner()
     assert len(runner.benchmarks) > 0
 
 
 def test_runner_config():
+    from benchmarks.runner import BenchmarkRunner
     runner = BenchmarkRunner()
     assert runner.config is not None
     assert runner.config.calibration_ratio == 0.8

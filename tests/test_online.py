@@ -1,4 +1,8 @@
-"""Tests for online adaptive conformal."""
+"""Tests for online adaptive conformal.
+
+Score convention: HIGH score = MORE faithful (matches scoring.py).
+The engine abstains when score < threshold.
+"""
 
 import numpy as np
 from conformal_rag.online import OnlineConformal
@@ -18,24 +22,28 @@ class TestOnlineConformal:
         stats = oc.get_stats()
         assert 0.0 <= stats["threshold"] <= 1.0
 
-    def test_abstains_on_high_risk(self):
+    def test_abstains_on_low_faithfulness(self):
         oc = OnlineConformal(alpha=0.05)
         oc._threshold = 0.45
-        assert oc.should_abstain(0.5) is True
-        assert oc.should_abstain(0.3) is False
+        # Low score = not faithful -> abstain
+        assert oc.should_abstain(0.3) is True
+        # High score = faithful -> approve
+        assert oc.should_abstain(0.5) is False
 
     def test_converges_under_exchangeable_stream(self):
         rng = np.random.default_rng(0)
-        oc = OnlineConformal(alpha=0.1, window_size=200, eta=0.02, initial_level=0.9)
+        oc = OnlineConformal(alpha=0.1, window_size=200, eta=0.02, initial_level=0.1)
         n = 4000
-        miscoverage = 0
+        errors = 0
         for _ in range(n):
             is_halluc = rng.random() < 0.1
-            score = rng.normal(0.9 if is_halluc else 0.1, 0.1)
+            # High score = faithful; hallucinations score low
+            score = rng.normal(0.1 if is_halluc else 0.9, 0.1)
             oc.update(score, is_correct=not is_halluc)
-            if score > oc.threshold and not is_halluc:
-                miscoverage += 1
-        rate = miscoverage / n
+            # Error event: approved (score >= threshold) but actually wrong
+            if score >= oc.threshold and is_halluc:
+                errors += 1
+        rate = errors / n
         assert abs(rate - 0.1) < 0.1
 
     def test_window_maxsize(self):

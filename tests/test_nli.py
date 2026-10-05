@@ -1,5 +1,4 @@
 # tests/test_nli.py
-import pytest
 from conformal_rag.scoring import NLIScorer
 
 

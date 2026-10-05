@@ -1,8 +1,7 @@
 """Integration tests for ScoringPipeline with NLI scorer and LLM judge."""
 
-import pytest
-from unittest.mock import patch, MagicMock
-from conformal_rag.scoring import ScoringPipeline, NLIScorer
+from unittest.mock import patch
+from conformal_rag.scoring import ScoringPipeline
 from conformal_rag.models import ScoringBreakdown
 
 

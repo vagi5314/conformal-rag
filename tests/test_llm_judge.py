@@ -40,7 +40,7 @@ class TestLLMClient:
         mock_litellm.completion.return_value.choices[0].message.content = "0.7"
 
         client = LLMClient(self.config)
-        result = client.complete("Test prompt")
+        client.complete("Test prompt")
         assert mock_litellm.completion.call_count == 2
 
     @patch("conformal_rag.llm.litellm")
