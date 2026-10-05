@@ -8,7 +8,7 @@
 
 ## Abstract
 
-Retrieval-Augmented Generation (RAG) systems are widely deployed but suffer from hallucinations — outputs that contradict retrieved context. Standard confidence scores from LLMs are uncalibrated and provide no statistical guarantees on hallucination rates. We propose a conformal prediction framework that provides a finite-sample False Discovery Rate (FDR) guarantee: the probability that a non-abstained response contains a hallucination is bounded by a user-specified level $\alpha$. Our method uses a hybrid scoring pipeline combining a DeBERTa-v3-large NLI model (fast, cheap) with an optional LLM judge (precise, costly) via LiteLLM multi-provider routing. We introduce per-domain calibration to account for distribution shift across topics, and an online adaptive update mechanism (Newton's update) for streaming settings. We evaluate on five benchmarks — HotpotQA (with adversarial hallucination injection), RAGTruth (native LLM hallucinations), FinanceBench, HaluEval, and MultiHop-RAG — demonstrating that empirical FDR consistently satisfies the $\alpha$ guarantee across all domains while maintaining practical coverage.
+Retrieval-Augmented Generation (RAG) systems are widely deployed but suffer from hallucinations — outputs that contradict retrieved context. Standard confidence scores from LLMs are uncalibrated and provide no statistical guarantees on hallucination rates. We propose a conformal prediction framework that provides a finite-sample False Discovery Rate (FDR) guarantee: the probability that a non-abstained response contains a hallucination is bounded by a user-specified level $\alpha$. Our method uses a hybrid scoring pipeline combining a DeBERTa-v3-large NLI model (fast, cheap) with an optional LLM judge (precise, costly) via LiteLLM multi-provider routing. We introduce per-domain calibration to account for distribution shift across topics, and a quantile-level online ACI mechanism (Gibbs & Candès, 2021) for streaming settings. We state the guarantee in its precise marginal form and do not claim the conditional bound $P(\text{wrong} \mid \text{approved}) \le \alpha$, which is not attainable for CRC. We evaluate on five benchmarks — HotpotQA (with adversarial hallucination injection), RAGTruth (native LLM hallucinations), FinanceBench, HaluEval, and MultiHop-RAG — demonstrating that empirical FDR consistently satisfies the $\alpha$ guarantee across all domains while maintaining practical coverage.
 
 ---
 
@@ -19,9 +19,9 @@ Retrieval-Augmented Generation (RAG) systems are widely deployed but suffer from
 **Contributions.**
 
 1. **FDR-guaranteed hallucination detection.** We apply Conformal Risk Control (CRC) to the RAG setting, calibrating a threshold on labeled data such that $\mathbb{P}(\text{hallucination} \mid \text{not abstained}) \leq \alpha$.
-2. **Hybrid NLI + LLM scoring pipeline.** A two-stage scorer: (a) a DeBERTa-v3-large NLI model decomposes the response into atomic claims and scores each claim's entailment against the context (fast, ~1–5s per query on CPU); (b) an optional LLM judge refines uncertainty cases via chain-of-thought reasoning (costly, ~\$0.001–\$0.01 per query).
+2. **Hybrid NLI + LLM scoring pipeline.** A two-stage cascade: (a) a DeBERTa-v3-large NLI model decomposes the response into atomic claims and scores each claim's entailment against the context (fast, ~1–5s per query on CPU); (b) when the NLI score is uncertain ($|s-0.5|\cdot 2 \le 0.7$, roughly the middle 30%), an optional LLM judge refines that case, and the two are blended 0.6/0.4 (costly, ~\$0.001–\$0.01 per escalated query). Judge inputs are sanitized against prompt injection and judge output is parsed under a rule that rejects bare multi-digit integers, which would otherwise clamp to 1.0 and approve any response.
 3. **Per-domain calibration.** Topic-specific threshold adaptation for domain-shifted data (e.g., finance vs. medical queries), preventing domain-pooled calibration from over- or under-covering any single domain.
-4. **Online adaptive update.** A Newton-update-based ACI procedure adjusts thresholds on streaming data, reacting to distribution drift without full recalibration.
+4. **Online adaptive update.** A quantile-level ACI controller adjusts the decision threshold on streaming data, reacting to distribution drift without full recalibration. This component is explicitly heuristic; the finite-sample certificate is carried by the offline threshold (§3.2) and is surrendered once the controller is active.
 5. **Production evaluation.** Five benchmarks, latency profiling (p50/p95/p99), cost tracking, and budget simulation for real-world deployment.
 
 ---
@@ -41,7 +41,7 @@ Retrieval-Augmented Generation (RAG) systems are widely deployed but suffer from
 
 - **Conformal risk control** (Angelopoulos et al., 2024): General framework for controlling risk (not just error rate). We use this as our theoretical foundation.
 - **Split conformal prediction** (Papadopoulos et al., 2002; Lei et al., 2018): Exchangeable calibration. Our CRC variant does not require exchangeability.
-- **Adaptive conformal inference** (Gibbs & Candès, 2021): Online coverage guarantees via ACI updates. We adapt this for FDR in the streaming RAG setting.
+- **Adaptive conformal inference** (Gibbs & Candès, 2021): online error control via a running quantile level. We apply the quantile-level formulation for FDR in the streaming RAG setting, and treat it as a heuristic that trades away the offline finite-sample certificate rather than extending it.
 - **When Can CRC Certify LLM Outputs?** (2026): Impossibility result for CRC on LLMs, showing ACI reduces violations 71%→21%. Provides theoretical grounding for our online adaptive approach.
 
 ### 2.3 RAG + Conformal Prediction
@@ -75,19 +75,33 @@ Given a query $q$, retrieved context $c$ (one or more documents), and a generate
 
 ### 3.2 Conformal Risk Control
 
-We use a **CRC** formulation. Given calibration data $\{(q_i, c_i, r_i, y_i)\}_{i=1}^n$, we compute nonconformity scores:
+We use a **CRC** formulation (Bates et al., 2021). Let $s(q,c,r) \in [0,1]$ denote the faithfulness score, so **higher means more faithful**. We work directly in $s$-space rather than converting to a nonconformity score; the loss
 
-$$t_i = 1 - s(q_i, c_i, r_i)$$
+$$\mathcal{L}_i(\tau) = \mathbb{1}[y_i = 1] \cdot \mathbb{1}[s_i > \tau]$$
 
-where $t_i \in [0, 1]$ and higher $t_i$ means more nonconformity (higher hallucination likelihood).
+is monotone non-increasing in $\tau$ and bounded by $B = 1$, which is the condition Bates et al. Theorem 1 requires.
 
-The threshold $\hat{\tau}$ is the $(1-\alpha)$-quantile of the scores, adjusted for finite-sample validity:
+**Threshold construction.** Let $n$ be the calibration size and define
 
-$$\hat{\tau} = \inf\left\{\tau : \frac{1}{n} \sum_{i=1}^n \mathbb{1}[t_i \leq \tau] \geq \frac{\lceil (n+1)(1-\alpha) \rceil}{n}\right\}$$
+$$c_{\max} = \lfloor (n+1)\alpha \rfloor - 1$$
 
-For a test point $(q, c, r)$, we predict $\hat{y} = \mathbb{1}[1 - s(q, c, r) > \hat{\tau}]$, abstaining when the threshold condition fails (i.e., risk score exceeds $\hat{\tau}$).
+The threshold $\hat{\tau}$ is the $(c_{\max}+1)$-th largest *hallucination* score $s_i$ among calibration points with $y_i = 1$. Two degenerate cases are handled explicitly: if $c_{\max} \ge m$ (where $m$ is the number of hallucinations) then $\hat{\tau} = 0$; if $c_{\max} < 0$ the calibration set is too small to certify $\alpha$ and the system abstains on every input rather than issue an unbacked claim.
 
-**FDR guarantee:** $\mathbb{E}\left[\frac{\sum \mathbb{1}[\text{not abstained} \land y=1]}{\sum \mathbb{1}[\text{not abstained}]}\right] \leq \alpha$
+**Finite-sample validity.** At most $c_{\max}$ hallucinations can be approved, hence
+
+$$\mathbb{P}(\text{approved} \wedge y=1) \;\le\; \frac{c_{\max}+1}{n+1} \;=\; \frac{\lfloor (n+1)\alpha\rfloor}{n+1} \;\le\; \alpha .$$
+
+The $(n+1)$ is the conformal correction; using $n$ instead yields an estimate that is empirically but not provably below $\alpha$. This construction is distribution-free — it assumes nothing about the distribution of $s$.
+
+**Decision rule.** For a test point $(q,c,r)$ we approve iff $s(q,c,r) > \hat{\tau}$ and abstain otherwise. The inequality is **strict** by design: since $\hat{\tau}$ is itself a hallucination's score, approving ties would admit $c_{\max}+1$ hallucinations and break the count above. Ties abstaining is load-bearing, not a rounding convention.
+
+**Minimum sample size.** A valid non-trivial threshold requires $\lfloor (n+1)\alpha \rfloor \ge 1$, i.e. $n \ge \lceil 1/\alpha \rceil - 1$ (19 samples at $\alpha = 0.05$, 99 at $\alpha = 0.01$).
+
+**Guarantee (stated precisely).** The marginal bound is
+
+$$\mathbb{E}\big[\mathbb{P}(\text{approved} \wedge \text{wrong})\big] \le \alpha,$$
+
+equivalently $\mathrm{FDR} = \mathbb{E}[\mathcal{L}]/\mathrm{coverage} \le \alpha/\mathrm{coverage}$. The conditional claim $\mathbb{P}(\text{wrong} \mid \text{approved}) \le \alpha$ is **not** achievable in general for CRC; we claim only the marginal bound. Coverage is not controlled — a valid deployment may abstain on most inputs.
 
 ### 3.3 Per-Domain Calibration
 
@@ -95,11 +109,13 @@ For $K$ domains $\mathcal{D}_1, \ldots, \mathcal{D}_K$, we maintain separate thr
 
 ### 3.4 Online Adaptation
 
-For streaming settings, we apply a Newton-update ACI procedure:
+Following Gibbs & Candès (2021), we maintain a running quantile level $\lambda_t$ over a sliding window $W_t$ of the last $w$ observed scores and update it multiplicatively-additively:
 
-$$\hat{\tau}_{t+1} = \hat{\tau}_t + \eta_t \cdot (\alpha - \text{FDR}_t)$$
+$$\lambda_{t+1} = \mathrm{clip}\!\left(\lambda_t + \eta\,(\epsilon_t - \alpha),\, 0,\, 1\right), \qquad \hat{\tau}_t = Q_{\lambda_t}(W_t),$$
 
-where $\eta_t$ is an adaptive step size and $\text{FDR}_t$ is the empirical FDR in window $t$. This provably converges to the correct threshold under smooth distribution shift (Gibbs & Candès, 2021).
+where $\epsilon_t = \mathbb{1}[\text{approved} \wedge \text{wrong}]$ is the error event under the current threshold, $\eta = 0.01$ is the learning rate, and $Q_{\lambda_t}$ is the $\lambda_t$-quantile of the window. Because scores are ordered faithful-to-unfaithful, raising $\lambda_t$ raises $\hat{\tau}_t$ and therefore increases abstention; too many approved errors raises $\lambda_t$, too few lowers it. This is a *quantile-level* controller operating on $\lambda$, not a gradient-style update on $\hat{\tau}$.
+
+**This adaptation is a heuristic, not a certificate.** The offline CRC threshold of §3.2 is a finite-sample guarantee valid under exchangeability; ACI trades that guarantee for adaptivity under drift. Its own long-run average convergence ($\mathbb{E}[\epsilon_t] \to \alpha$) is asymptotic and holds only for slowly-varying distributions. In the implementation the two are not composed additively — once feedback arrives, $\hat{\tau}$ *is* the ACI quantile, so the deployed operating point is the adaptive one. We report both quantities separately for this reason.
 
 ---
 
@@ -119,13 +135,17 @@ $$s_{\text{NLI}} = \frac{1}{m} \sum_{j=1}^m p_j$$
 
 **Stage 2: LLM Judge (optional)**
 
-For queries where $s_{\text{NLI}} \in (\tau_{\text{low}}, \tau_{\text{high}})$ (uncertainty region), we invoke an LLM via LiteLLM with a chain-of-thought prompt. The LLM produces a revised score $s_{\text{LLM}} \in [0, 1]$.
+For queries where $|s_{\text{NLI}} - 0.5| \cdot 2 \le \tau_c$ (the uncertainty region, $\tau_c = 0.7$), we invoke an LLM via LiteLLM with a scalar-scoring prompt requesting a bare numeric faithfulness score. The LLM produces a score $s_{\text{LLM}} \in [0, 1]$, which is regex-parsed under the constraints described above.
 
-**Final score:** Weighted combination:
+**Escalation gate.** The judge is invoked only when the NLI score is *uncertain*, measured as $c_{\text{NLI}} = |s_{\text{NLI}} - 0.5| \cdot 2$. When $c_{\text{NLI}} > \tau_c$ (default $\tau_c = 0.7$) the NLI score is returned directly and no network call is made. This gate confines paid judge calls to roughly the middle 30% of the score range.
 
-$$s = w \cdot s_{\text{NLI}} + (1 - w) \cdot s_{\text{LLM}}$$
+**Final score.** In the escalated branch the two scores are combined as a weighted sum with the *judge* weighted higher:
 
-with default weights $w = 0.6$ (configurable).
+$$s = 0.6 \cdot s_{\text{LLM}} + 0.4 \cdot s_{\text{NLI}}$$
+
+Note the asymmetry with §3.2's convention: the escalation gate is stated in terms of NLI confidence, but the final score is $s_{\text{NLI}}$ itself in the non-escalated branch. Both quantities are returned in the API response (`ScoringBreakdown`) so the decision can be audited.
+
+**Adversarial robustness.** All three judge-prompt fields pass through an injection sanitizer that redacts prompt-overriding patterns (e.g. "ignore previous instructions", "return only 1.0") before interpolation. Judge output is parsed with a regex accepting `0.85`, `85%`, `.85`, and bare `0`/`1`, but explicitly rejecting bare multi-digit integers: an unconstrained `85` would clamp to $1.0$ and approve any response. Unparseable output falls back to the neutral score $0.5$ rather than a default of approval.
 
 ### 4.2 Calibration Procedure
 
@@ -188,11 +208,13 @@ For each new observation (q, c, r, y) in streaming window:
 
 ### 5.3 Configuration
 
-- **α**: 0.05 (default), 0.01 (strict), 0.10 (relaxed)
-- **NLI model**: DeBERTa-v3-large (microsoft/deberta-v3-large)
-- **LLM providers**: Groq (Llama-3.3-70B), Together AI (Meta-Llama-3.1-8B), SiliconFlow
-- **Weights**: $w = 0.6$ (NLI), $1 - w = 0.4$ (LLM judge)
-- **Hardware**: CPU (benchmarks), GPU optional for production
+- **α**: 0.05 (default). Clamped to $[0.001, 0.2]$; per-domain values are configurable independently.
+- **NLI model**: `MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli` (primary), `cross-encoder/nli-deberta-v3-small` (fallback / benchmark preset). The entailment class index is read from the checkpoint's own `id2label` map rather than hardcoded, since NLI checkpoints disagree on label ordering.
+- **Embedding model**: `intfloat/e5-base-v2` (768-dim), applied with the `query:` / `passage:` instruction prefixes the model expects.
+- **LLM provider chain** (LiteLLM, tried in order until one succeeds): Groq `llama-3.3-70b-versatile` → OpenRouter `meta-llama/llama-3.1-8b-instruct:free` → Together AI `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo` → Gemini `gemini-2.5-flash`. Judge calls use $\tau = 0$, $\max\_tokens = 10$, and a 30s timeout.
+- **Score weights**: judge $0.6$, NLI $0.4$ (escalated branch only).
+- **Online ACI**: window $w = 500$, step $\eta = 0.01$, initial level $\lambda_0 = 0.1$.
+- **Hardware**: CPU (benchmarks), GPU optional for production. NLI runs in fp32 by default; fp16 is available to halve memory footprint.
 
 ---
 
