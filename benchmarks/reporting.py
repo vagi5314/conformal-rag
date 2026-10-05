@@ -94,7 +94,7 @@ def render_run_report(
             "",
             f"- **Total cost:** ${cost_tracker.total_cost:.4f}",
             f"- **Avg/query:** ${cost_tracker.avg_cost_per_query():.6f}",
-            f"- **By provider:** "
+            "- **By provider:** "
             + ", ".join(f"{k}=${v:.4f}" for k, v in cost_tracker.by_provider.items()),
             "",
         ]

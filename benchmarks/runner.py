@@ -12,7 +12,6 @@ from typing import Optional
 from benchmarks import get_all_benchmarks
 from benchmarks.config import load_config, BenchmarkConfig
 from benchmarks.base import Aggregation
-from benchmarks._common import aggregate_results
 from benchmarks.profiling.cost import CostTracker
 from benchmarks.profiling.latency import LatencyTracer
 from benchmarks.reporting import (
@@ -24,6 +23,36 @@ from conformal_rag.engine import ConformalRAGEngine
 from conformal_rag.scoring import ScoringPipeline
 
 
+def _score_distribution(scores: list, labels: list, threshold: float) -> dict:
+    """Summarize calibration score separability by label.
+
+    A scorer is useful when faithful (label 0) and hallucinated (label 1)
+    scores form distinct clusters. If the two means nearly coincide the
+    scores are collapsed and no threshold can separate them well.
+    """
+
+    def _stats(values: list) -> dict:
+        if not values:
+            return {"n": 0, "mean": 0.0, "min": 0.0, "max": 0.0}
+        return {
+            "n": len(values),
+            "mean": round(sum(values) / len(values), 4),
+            "min": round(min(values), 4),
+            "max": round(max(values), 4),
+        }
+
+    faithful = [s for s, lbl in zip(scores, labels) if lbl == 0]
+    hallucinated = [s for s, lbl in zip(scores, labels) if lbl == 1]
+    f_stats = _stats(faithful)
+    h_stats = _stats(hallucinated)
+    return {
+        "faithful": f_stats,
+        "hallucinated": h_stats,
+        "separation_margin": round(f_stats["mean"] - h_stats["mean"], 4),
+        "threshold": round(threshold, 4),
+    }
+
+
 class BenchmarkRunner:
     """Discovers and runs benchmark plugins."""
 
@@ -32,18 +61,27 @@ class BenchmarkRunner:
         config: Optional[BenchmarkConfig] = None,
         alpha: float = 0.05,
         use_llm_judge: bool = False,
+        nli_model: str = "large",
+        use_float16: bool = False,
     ):
         self.config = config or load_config()
         self.benchmarks = get_all_benchmarks()
         self.alpha = alpha
         self.use_llm_judge = use_llm_judge
+        self.nli_model = nli_model
+        self.use_float16 = use_float16
 
     def _build_engine(self, cost_tracker: CostTracker) -> ConformalRAGEngine:
-        scoring = ScoringPipeline(use_llm_judge=self.use_llm_judge)
+        scoring = ScoringPipeline(
+            use_llm_judge=self.use_llm_judge,
+            nli_model=self.nli_model,
+            use_float16=self.use_float16,
+        )
         engine = ConformalRAGEngine(alpha=self.alpha, scoring=scoring)
-        if self.use_llm_judge:
+        judge = engine.scoring.llm_judge
+        if self.use_llm_judge and judge is not None and judge.client is not None:
             # Wire real token-level cost capture into the LLM judge client.
-            engine.scoring.llm_judge.client.config.usage_callback = (
+            judge.client.config.usage_callback = (
                 lambda provider, inp, out: cost_tracker.record(
                     provider.split("/")[0], inp, out
                 )
@@ -102,6 +140,17 @@ class BenchmarkRunner:
             f"Calibration: threshold={stats.threshold:.4f}, "
             f"est_fdr={stats.estimated_fdr:.4f}"
         )
+        score_dist = _score_distribution(
+            engine._calibration_scores, cal_labels, stats.threshold
+        )
+        print(
+            "Score separation: faithful_mean={:.3f} hallucinated_mean={:.3f} "
+            "(margin {:.3f})".format(
+                score_dist["faithful"]["mean"],
+                score_dist["hallucinated"]["mean"],
+                score_dist["separation_margin"],
+            )
+        )
 
         results = []
         for sample in test_samples:
@@ -141,6 +190,7 @@ class BenchmarkRunner:
                 "abstention_rate": aggregation.abstention_rate,
                 "total_samples": aggregation.total_samples,
             },
+            "score_distribution": score_dist,
             "latency_summary": latency_summary,
             "cost_summary": {
                 "total_cost": cost_tracker.total_cost,
@@ -212,12 +262,27 @@ def main():
     parser.add_argument("--benchmark", "-b", help="Run a specific benchmark")
     parser.add_argument("--alpha", "-a", type=float, default=0.05, help="Significance level")
     parser.add_argument("--llm-judge", action="store_true", help="Enable LLM judge (costs API credits)")
+    parser.add_argument(
+        "--nli-model",
+        default="large",
+        help="NLI scorer preset: 'large' (default) or 'small' (~10x faster on CPU)",
+    )
+    parser.add_argument(
+        "--fp16",
+        action="store_true",
+        help="Load the NLI model in float16 (halves memory on constrained boxes)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Load only, no evaluation")
     parser.add_argument("--simulate-budget", action="store_true", help="Simulate cost at production QPS")
     parser.add_argument("--limit", type=int, default=None, help="Cap dataset size per benchmark")
     args = parser.parse_args()
 
-    runner = BenchmarkRunner(alpha=args.alpha, use_llm_judge=args.llm_judge)
+    runner = BenchmarkRunner(
+        alpha=args.alpha,
+        use_llm_judge=args.llm_judge,
+        nli_model=args.nli_model,
+        use_float16=args.fp16,
+    )
 
     if args.benchmark:
         asyncio.run(

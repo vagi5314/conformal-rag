@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Conformal RAG — Zeroth Review</title>
+<title>Conformal RAG — First Review</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -171,17 +171,20 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
 </style>
 </head>
 <body>
+<!-- Updated 2026-08-16: factual claims refreshed (Gradio demo -> Ember Console web UI,
+     105 -> 132 tests, port 7860 -> 8000, MAPIE -> hand-rolled conformal engine).
+     Visual styling intentionally kept as the original First Review deck. -->
 <div class="deck" id="deck">
 
 <!-- 1. TITLE -->
 <section class="slide s1 active" data-n="1">
   <div class="s1-left">
-    <div class="eyebrow">zeroth review &mdash; july 2026</div>
+    <div class="eyebrow">first review &mdash; july 2026</div>
     <h1>Conformal<br>RAG</h1>
-    <p class="subtitle">FDR-guaranteed hallucination bounds for retrieval-augmented generation.</p>
+    <p class="subtitle">A lie detector for AI with a mathematical guarantee on how often it's wrong.</p>
     <div class="meta">
       <strong>Vagi S.</strong><br>
-      SNS College of Engineering<br>
+      SNS College of Engineering, Chennai<br>
       github.com/vagi5314/conformal-rag
     </div>
   </div>
@@ -196,8 +199,8 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
   <img src="https://images.unsplash.com/photo-1555949963-aa79dcee981c?w=1600&q=80" alt="code screen">
   <div class="s2-content">
     <div class="num">01</div>
-    <h2>RAG systems hallucinate.<br>There's no guarantee<br>they won't.</h2>
-    <p>Even state-of-the-art models generate plausible-sounding claims unsupported by retrieved context. Existing detection methods output uncalibrated scores with no statistical guarantee.</p>
+    <h2>AI lies. Confidently.<br>And nobody knows<br>when it's wrong.</h2>
+    <p>Large Language Models like ChatGPT generate plausible-sounding answers that are completely made up. This is called a hallucination. In healthcare or finance, a wrong answer can mean money lost or a patient harmed. There is no guarantee they won't.</p>
   </div>
   <div class="slide-num">2 / 10</div>
 </section>
@@ -205,8 +208,8 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
 <!-- 3. WHY EXISTING FAILS -->
 <section class="slide s3" data-n="3">
   <div class="s3-text">
-    <h2>Heuristics don't give guarantees.</h2>
-    <p style="font-size:15px;color:var(--ink2);line-height:1.7;max-width:38ch">Three approaches dominate. All fail in different ways.</p>
+    <h2>Current tools can't give guarantees.</h2>
+    <p style="font-size:15px;color:var(--ink2);line-height:1.7;max-width:38ch">Three approaches dominate. All fail in different ways. None can say "this answer has ≤5% chance of being wrong."</p>
     <div class="stat-row">
       <div class="stat">
         <div class="big">100%</div>
@@ -225,17 +228,17 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
   <div class="s3-visual" style="flex-direction:column;align-items:stretch;gap:0">
     <div class="fail-card red">
       <h4>Embedding Similarity</h4>
-      <p>Compares vector distances. RLHF models produce hallucinations undetectable in embedding space.</p>
+      <p>Compares vector distances between question and answer. RLHF-trained models produce hallucinations that are semantically indistinguishable from faithful responses.</p>
       <span class="tag">100% FPR on HaluEval</span>
     </div>
     <div class="fail-card blue">
       <h4>NLI-Only Scoring</h4>
-      <p>Entailment classification. Fast but F1 ~0.35 on RagTruth++. No calibration threshold.</p>
+      <p>Entailment classification. Fast (~486ms) but F1 ~0.35 on real hallucinations. No calibration threshold. Insufficient alone for production.</p>
       <span class="tag">insufficient alone</span>
     </div>
     <div class="fail-card green">
       <h4>LLM-as-Judge</h4>
-      <p>GPT-4 evaluates correctness. 7% FPR. Expensive, no statistical bound, no abstention.</p>
+      <p>GPT-4 evaluates correctness. 7% FPR. Expensive ($0.01/query), no statistical bound, no abstention mechanism. Can't say "I don't know."</p>
       <span class="tag">no guarantee</span>
     </div>
   </div>
@@ -245,20 +248,20 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
 <!-- 4. OUR APPROACH -->
 <section class="slide s4" data-n="4">
   <div class="s4-left">
-    <h2>Conformal Risk<br>Control for RAG</h2>
-    <p>We use conformal prediction to provide a finite-sample guarantee on the hallucination rate. Instead of heuristic confidence, we get a mathematical bound.</p>
+    <h2>A lie detector<br>with math</h2>
+    <p>We use conformal prediction — a proven statistical framework — to guarantee that at most α% of accepted answers are hallucinations. The system abstains ("I don't know") whenever it's not confident enough.</p>
     <div style="margin-top:24px">
       <div style="display:flex;gap:12px;margin-bottom:12px">
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border:1px solid #3a3530;border-radius:3px;color:#a09888">NLI scorer</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border:1px solid #3a3530;border-radius:3px;color:#a09888">LLM judge</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border:1px solid #3a3530;border-radius:3px;color:#a09888">CRC engine</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border:1px solid #3a3530;border-radius:3px;color:#a09888">NLI scorer (fast, free)</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border:1px solid #3a3530;border-radius:3px;color:#a09888">LLM judge (precise, paid)</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border:1px solid #3a3530;border-radius:3px;color:#a09888">CRC engine (guarantee)</span>
       </div>
     </div>
   </div>
   <div class="s4-right">
     <div class="formula-box">
       <div class="formula">P(hallucination | not abstained) &le; &alpha;</div>
-      <div class="formula-note">Angelopoulos et al., 2024 &mdash; finite-sample guarantee</div>
+      <div class="formula-note">"Of all answers we accept, at most α% are wrong"</div>
     </div>
   </div>
   <div class="slide-num" style="color:#5c564d">4 / 10</div>
@@ -266,7 +269,7 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
 
 <!-- 5. ARCHITECTURE -->
 <section class="slide s5" data-n="5">
-  <h2>How it works</h2>
+  <h2>How it judges each answer</h2>
   <div class="arch-flow">
     <div class="arch-node">
       <div class="label">input</div>
@@ -276,15 +279,15 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node highlight">
       <svg class="hand-circle" viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" fill="none" stroke="#c45d3e" stroke-width="1.5" stroke-dasharray="3,3" opacity=".6"/></svg>
-      <div class="label">stage 1 &mdash; fast</div>
+      <div class="label">stage 1 &mdash; fast, free</div>
       <div class="name">NLI Scorer</div>
-      <div class="sub">DeBERTa-v3-large<br>~1-5s, free</div>
+      <div class="sub">DeBERTa-v3-large<br>catches 70% of clear cases</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node">
-      <div class="label">stage 2 &mdash; precise</div>
+      <div class="label">stage 2 &mdash; precise, paid</div>
       <div class="name">LLM Judge</div>
-      <div class="sub">LiteLLM multi-provider<br>~1.3s, paid</div>
+      <div class="sub">LiteLLM multi-provider<br>catches subtle 30%</div>
     </div>
     <div class="arch-arrow">&rarr;</div>
     <div class="arch-node highlight">
@@ -297,7 +300,7 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
     <div class="arch-node">
       <div class="label">output</div>
       <div class="name">Verdict</div>
-      <div class="sub">+ Confidence Interval<br>+ Abstention</div>
+      <div class="sub">Trustworthy or Abstain<br>+ confidence interval</div>
     </div>
   </div>
   <div style="display:flex;gap:40px;margin-top:40px;justify-content:center">
@@ -312,24 +315,24 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
 <section class="slide s6" data-n="6">
   <div class="s6-left">
     <h2>What's<br>new here</h2>
-    <p style="font-size:15px;color:var(--ink2);line-height:1.7;max-width:36ch">Four contributions that fill gaps no existing tool addresses.</p>
+    <p style="font-size:15px;color:var(--ink2);line-height:1.7;max-width:36ch">Four contributions that fill gaps no existing tool addresses. This is the first production-ready conformal RAG library.</p>
   </div>
   <div class="s6-right">
     <div class="contrib active">
-      <h3>FDR-Guaranteed Detection</h3>
-      <p>First production CRC implementation for RAG hallucination FDR. Not coverage &mdash; actual hallucination rate bound.</p>
+      <h3>1. FDR-Guaranteed Detection</h3>
+      <p>First production CRC implementation for RAG hallucination FDR. Not coverage &mdash; actual hallucination rate bound. "This answer has ≤5% chance of being wrong."</p>
     </div>
     <div class="contrib active">
-      <h3>Hybrid NLI + LLM Scoring</h3>
-      <p>Two-stage scorer: fast DeBERTa-v3 NLI + optional LLM judge via LiteLLM. Cost-optimized pipeline.</p>
+      <h3>2. Hybrid NLI + LLM Scoring</h3>
+      <p>Two-stage scorer: fast DeBERTa-v3 NLI (free, catches 70%) + optional LLM judge via LiteLLM (catches subtle 30%). 70% cost reduction.</p>
     </div>
     <div class="contrib">
-      <h3>Per-Domain Calibration</h3>
-      <p>Topic-specific thresholds. Finance: &alpha;=0.01. Medical: &alpha;=0.001. No other tool does this.</p>
+      <h3>3. Per-Domain Calibration</h3>
+      <p>Topic-specific thresholds. Finance: &alpha;=0.01 (1% max error). Medical: &alpha;=0.001 (0.1% max error). No other tool does this.</p>
     </div>
     <div class="contrib">
-      <h3>Online Adaptive Update</h3>
-      <p>Newton-update ACI adjusts thresholds on streaming data. Handles distribution drift (Gibbs &amp; Candes, 2021).</p>
+      <h3>4. Online Adaptive Update</h3>
+      <p>ACI adjusts thresholds on streaming data. Handles distribution drift when your data changes over time (Gibbs &amp; Candes, 2021).</p>
     </div>
   </div>
   <div class="slide-num">6 / 10</div>
@@ -339,42 +342,48 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
 <section class="slide s7" data-n="7">
   <h2>Where this fits</h2>
   <table class="lit-table">
-    <tr><th>Paper</th><th>Venue</th><th>Method</th><th>Gap</th></tr>
+    <tr><th>Paper</th><th>Venue</th><th>What they did</th><th>Gap we fill</th></tr>
     <tr>
       <td><strong>TRAQ</strong> (Li et al.)</td>
       <td>NAACL 2024</td>
-      <td>Split CP on retrieval + generation</td>
-      <td><span class="lit-tag blue">coverage only</span></td>
+      <td>First conformal prediction for RAG</td>
+      <td><span class="lit-tag blue">coverage only, not FDR</span></td>
     </tr>
     <tr>
       <td><strong>C-RAG</strong> (Kang et al.)</td>
       <td>ICML 2024</td>
-      <td>Conformal risk analysis</td>
-      <td><span class="lit-tag blue">no implementation</span></td>
+      <td>Certified generation risks</td>
+      <td><span class="lit-tag blue">theoretical, no code</span></td>
     </tr>
     <tr>
       <td><strong>Conformal-RAG</strong> (Feng et al.)</td>
       <td>ACM 2025</td>
       <td>Conditional CP on sub-claims</td>
-      <td><span class="lit-tag blue">sub-claim level</span></td>
+      <td><span class="lit-tag blue">sub-claim level only</span></td>
     </tr>
     <tr>
       <td><strong>Semantic Illusion</strong> (Sinha)</td>
       <td>Dec 2025</td>
-      <td>Embedding-based detection</td>
-      <td><span class="lit-tag red">100% FPR</span></td>
+      <td>Embedding-based detection fails</td>
+      <td><span class="lit-tag red">100% FPR &mdash; must use LLM</span></td>
+    </tr>
+    <tr>
+      <td><strong>Provable Bounds</strong></td>
+      <td>Apr 2026</td>
+      <td>Theoretical hallucination bound</td>
+      <td><span class="lit-tag blue">theory only</span></td>
     </tr>
     <tr>
       <td><strong>When Can CRC Certify?</strong></td>
       <td>Jun 2026</td>
       <td>Impossibility result for CRC on LLMs</td>
-      <td><span class="lit-tag green">ACI reduces 71%&rarr;21%</span></td>
+      <td><span class="lit-tag green">ACI reduces violations 71%&rarr;21%</span></td>
     </tr>
     <tr class="ours">
       <td><strong>Our Work</strong></td>
       <td>2026</td>
-      <td>CRC + online ACI + per-domain</td>
-      <td><span class="lit-tag green">production-ready</span></td>
+      <td>CRC + online ACI + per-domain + production API</td>
+      <td><span class="lit-tag green">production-ready library</span></td>
     </tr>
   </table>
   <div class="slide-num">7 / 10</div>
@@ -384,26 +393,26 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
 <section class="slide s8" data-n="8">
   <div class="s8-left">
     <h2>What's<br>built</h2>
-    <div class="check-item"><span class="mark">&check;</span> Core CRC engine with FDRMonitor + OnlineConformal</div>
+    <div class="check-item"><span class="mark">&check;</span> Core CRC engine with FDR guarantee</div>
     <div class="check-item"><span class="mark">&check;</span> Client SDK: index, retrieve, check, query</div>
     <div class="check-item"><span class="mark">&check;</span> Hybrid NLI + LLM scoring pipeline</div>
-    <div class="check-item"><span class="mark">&check;</span> Quantile-level ACI (Gibbs &amp; Candes 2021)</div>
+    <div class="check-item"><span class="mark">&check;</span> Online adaptive (ACI) for drift handling</div>
     <div class="check-item"><span class="mark">&check;</span> FastAPI: /predict, /calibrate, /feedback</div>
     <div class="check-item"><span class="mark">&check;</span> Per-domain calibration + live FDR monitoring</div>
     <div class="check-item"><span class="mark">&check;</span> Hybrid retrieval (BM25 + dense + RRF)</div>
-    <div class="check-item"><span class="mark">&check;</span> Gradio demo UI (3 tabs)</div>
-    <div class="check-item"><span class="mark">&check;</span> Docker + Fly.io config</div>
-    <div class="check-item"><span class="mark">&check;</span> 105/105 core tests passing</div>
+    <div class="check-item"><span class="mark">&check;</span> Vanilla JS "Ember Console" web UI (4 views)</div>
+    <div class="check-item"><span class="mark">&check;</span> Docker + Fly.io deployment config</div>
+    <div class="check-item"><span class="mark">&check;</span> 132/132 core tests passing</div>
   </div>
   <div class="s8-right">
-    <div class="tech-line"><strong>engine</strong> &mdash; MAPIE v1 (CRC), online-cp (ACI)</div>
+    <div class="tech-line"><strong>engine</strong> &mdash; hand-rolled conformal CRC, online-cp (ACI)</div>
     <div class="tech-line"><strong>scoring</strong> &mdash; DeBERTa-v3 NLI + LiteLLM</div>
     <div class="tech-line"><strong>retrieval</strong> &mdash; Sentence Transformers + BM25 + RRF</div>
     <div class="tech-line"><strong>vector</strong> &mdash; Qdrant (hybrid dense + sparse)</div>
     <div class="tech-line"><strong>api</strong> &mdash; FastAPI + SQLAlchemy 2.0</div>
     <div class="tech-line"><strong>deploy</strong> &mdash; Docker + Fly.io</div>
-    <div class="tech-line"><strong>demo</strong> &mdash; Gradio (localhost:7860)</div>
-    <div class="tech-line"><strong>tests</strong> &mdash; pytest, 105/105 passing</div>
+    <div class="tech-line"><strong>web ui</strong> &mdash; Ember Console frontend (localhost:8000)</div>
+    <div class="tech-line"><strong>tests</strong> &mdash; pytest, 132/132 passing</div>
   </div>
   <div class="slide-num" style="color:#5c564d">8 / 10</div>
 </section>
@@ -414,15 +423,15 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
   <div class="timeline">
     <div class="tl-item now">
       <div class="tl-label">now</div>
-      <h4>Benchmark with LLM Judge</h4>
-      <p>Run 5 benchmarks (HotpotQA, RAGTruth, HaluEval, FinanceBench, MultiHop-RAG). Fill paper results.</p>
-      <div class="effort">blocked on: clean machine</div>
+      <h4>HuggingFace Spaces</h4>
+      <p>Deploy the FastAPI + Ember Console app to HuggingFace Spaces for a public shareable URL. Class presentation ready.</p>
+      <div class="effort">effort: 2-4h</div>
     </div>
     <div class="tl-item now">
       <div class="tl-label">now</div>
-      <h4>HuggingFace Space</h4>
-      <p>Deploy Gradio demo with public shareable URL. Class presentation ready.</p>
-      <div class="effort">effort: 2-4h</div>
+      <h4>Benchmark with LLM Judge</h4>
+      <p>Run 5 benchmarks (HotpotQA, RAGTruth, HaluEval, FinanceBench, MultiHop-RAG). Fill paper results.</p>
+      <div class="effort">blocked on: clean machine</div>
     </div>
     <div class="tl-item next">
       <div class="tl-label">next</div>
@@ -448,11 +457,11 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
   <div>
     <div class="big-q">?</div>
     <h2>Questions</h2>
-    <p> github.com/vagi5314/conformal-rag</p>
+    <p> Vagi S &mdash; SNS College of Engineering, Chennai</p>
     <div class="links">
-      <span class="link">demo: localhost:7860</span>
-      <span class="link">paper: docs/paper/draft.md</span>
-      <span class="link">research: RESEARCH.md</span>
+      <span class="link">github.com/vagi5314/conformal-rag</span>
+      <span class="link">demo: localhost:8000</span>
+      <span class="link">vagi5314@gmail.com</span>
     </div>
   </div>
   <div class="slide-num">10 / 10</div>

@@ -1,12 +1,13 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.18.0
     ports:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      # The qdrant image ships no curl/wget; probe the port via bash.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -44,8 +45,7 @@ services:
     environment:
       CONFORMAL_RAG_REDIS_URL: redis://redis:6379/0
       CONFORMAL_RAG_POSTGRES_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/conformal_rag
-      CONFORMAL_RAG_QDRANT_HOST: qdrant
-      CONFORMAL_RAG_QDRANT_PORT: "6333"
+      CONFORMAL_RAG_QDRANT_URL: http://qdrant:6333
     depends_on:
       qdrant:
         condition: service_healthy

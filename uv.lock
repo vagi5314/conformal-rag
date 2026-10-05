@@ -296,8 +296,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "litellm" },
-    { name = "mapie" },
-    { name = "online-cp" },
     { name = "pydantic" },
     { name = "qdrant-client" },
     { name = "rank-bm25" },
@@ -334,9 +332,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "litellm", specifier = ">=1.30" },
-    { name = "mapie", specifier = ">=1.0" },
     { name = "matplotlib", marker = "extra == 'benchmarks'", specifier = ">=3.8" },
-    { name = "online-cp", specifier = ">=0.1" },
     { name = "pandas", marker = "extra == 'benchmarks'", specifier = ">=2.2" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -1251,20 +1247,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mapie"
-version = "1.4.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/07/d7fb5c16f792432a028ceffc103ddc18155785c5d163296a632cfaeec5f6/mapie-1.4.1.tar.gz", hash = "sha256:3d174aa6a91b3af34a26654fcd1e4239e5d44fa8f37ecc34f739a00d4ecdc2dc", size = 16999707, upload-time = "2026-06-08T13:22:29.209Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/e3/01c64297e98676c3ac58d141ea0149464c7ed02d0160ef68c94f23756a2e/mapie-1.4.1-py3-none-any.whl", hash = "sha256:cb79bd98d30d3d370d2c74bc04e0f0d8ccfb1e90973d9773c0c9e956c4d1046b", size = 271613, upload-time = "2026-06-08T13:22:27.235Z" },
-]
-
-[[package]]
 name = "markdown-it-py"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1735,25 +1717,6 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/f3/d86c845465a2723ad7e1e5c36dcd75ddb82898b3f53be47ebd429fb2fa5d/nvidia_nvtx-13.0.85-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:4936d1d6780fbe68db454f5e72a42ff64d1fd6397df9f363ae786930fd5c1cd4", size = 148047, upload-time = "2025-09-04T08:29:01.761Z" },
     { url = "https://files.pythonhosted.org/packages/a8/64/3708a90d1ebe202ffdeb7185f878a3c84d15c2b2c31858da2ce0583e2def/nvidia_nvtx-13.0.85-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:cb7780edb6b14107373c835bf8b72e7a178bac7367e23da7acb108f973f157a6", size = 148878, upload-time = "2025-09-04T08:28:53.627Z" },
-]
-
-[[package]]
-name = "online-cp"
-version = "0.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "joblib" },
-    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "numpy" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "scipy" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/1c/cd04affdfc76ba349187119cb0841591c09b960bedd9ea6bc2807554c2fd/online_cp-0.3.0.tar.gz", hash = "sha256:6065c703c16206df77340d944508e9685cb6df7d9f8d2ab43ce1478c31df6179", size = 1157581, upload-time = "2026-06-18T06:38:23.8Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/06/0d/d5fdfdd4d8db7416acb84bbec7cb239cd52077dcff822e52942c750ac234/online_cp-0.3.0-py3-none-any.whl", hash = "sha256:e63cfac1aa190bcb3074e4dd329c0ec4829001ea99d276074bc98ace39c4841f", size = 149564, upload-time = "2026-06-18T06:38:22.004Z" },
 ]
 
 [[package]]

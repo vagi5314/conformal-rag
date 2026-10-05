@@ -31,12 +31,20 @@ class HotpotQABenchmark(BaseBenchmark):
     description = "Multi-hop QA — faithful + injected hallucination stress test"
 
     async def load_dataset(self, limit: int = MAX_SAMPLES) -> list[Sample]:
-        """Load HotpotQA and expand each item into a labeled faithful/hallucinated pair."""
+        """Load HotpotQA and expand each item into a labeled faithful/hallucinated pair.
+
+        Uses streaming so only the first `limit` rows are fetched — the full
+        train split (90k rows) is never materialized in memory.
+        """
         from datasets import load_dataset
 
-        dataset = load_dataset("hotpot_qa", "distractor", split=f"train[:{limit}]")
+        stream = load_dataset(
+            "hotpotqa/hotpot_qa", "distractor", split="train", streaming=True
+        )
         samples: list[Sample] = []
-        for i, item in enumerate(dataset):
+        for i, item in enumerate(stream):
+            if i >= limit:
+                break
             context = " ".join(
                 " ".join(sent_group) for sent_group in item["context"]["sentences"]
             )
