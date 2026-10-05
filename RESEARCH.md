@@ -401,7 +401,7 @@ Metrics to track:
 2. **Calibration dataset size?** — 500, 1000, 2000 samples?
 3. **α threshold default?** — 0.05 (5% FDR) or 0.01 (1% FDR)?
 4. **Rolling window size?** — Last 500, 1000, 2000 queries?
-5. **Dashboard framework?** — Streamlit, Gradio, React?
+5. **Dashboard framework?** — RESOLVED (2026-08-16): dependency-free vanilla JS + FastAPI StaticFiles ("Ember Console" frontend in `frontend/`).
 
 ---
 
@@ -688,21 +688,23 @@ PyPI trusted publishing (OIDC): no API tokens, GitHub Actions can publish direct
 
 | Priority | Task | Effort | Impact |
 |----------|------|--------|--------|
-| P0 | Gradio demo | 4-8h | Demo centerpiece |
+| P0 | Audit fixes (score direction, conformal threshold, guards, async) | 15-25h | Correctness — see docs/remaining-work.md |
 | P0 | HuggingFace Space | 2-4h | Public demo URL |
 | P0 | Benchmark with LLM judge | 5 min | Paper results |
 | P1 | Chrome extension | 15-25h | "Wow" factor |
 | P1 | LangChain wrapper | 6h | Ecosystem |
 | P1 | LlamaIndex wrapper | 6h | Ecosystem |
-| P2 | Publication (UncertaiNLP) | 2-3 weeks | Academic validation |
+| P2 | Publication (arXiv / next venue) | 2-3 weeks | Academic validation |
+
+*(Superseded 2026-08-16: the Gradio demo row was deleted — the web UI is now the vanilla-JS Ember Console frontend.)*
 
 ### 12.4 Publication Targets
 
 | Venue | Deadline | Status |
 |-------|----------|--------|
-| **UncertaiNLP @ EMNLP 2026** | Aug 7, 2026 | Active target |
-| **arXiv preprint** | Rolling | After benchmark results |
+| **UncertaiNLP @ EMNLP 2026** | Aug 7, 2026 | **PASSED** (as of 2026-08-16) — re-target arXiv or next venue |
+| **arXiv preprint** | Rolling | After audit fixes + benchmark results |
 
 ---
 
-*Updated: July 23, 2026*
+*Updated: August 16, 2026*

@@ -1,8 +1,10 @@
 # conformal-rag
 
-**Production-grade conformal RAG with FDR-guaranteed hallucination bounds.**
+**Production-grade conformal RAG with FDR-controlled hallucination bounds.**
 
-`conformal-rag` wraps any RAG pipeline with Conformal Risk Control (CRC), providing mathematically guaranteed False Discovery Rate (FDR) bounds on hallucination rates. Instead of heuristic confidence scores, you get provable guarantees: "this answer has ≤5% chance of hallucinating."
+`conformal-rag` wraps any RAG pipeline with Conformal Risk Control (CRC, Bates et al. 2021). Once calibrated on exchangeable labeled data, it provides the finite-sample guarantee **E[P(answer approved AND wrong)] ≤ α** — of all answers it approves, the expected error rate is bounded by your tolerance α. Instead of heuristic confidence scores, you get a provable bound.
+
+> **Honest scope:** the guarantee is the marginal CRC bound above. The conditional claim "P(wrong | approved) ≤ α" is not achievable in general for CRC (see *When Can CRC Certify LLM Outputs?*, 2026). Uncalibrated engines use a default threshold with **no** guarantee and report `calibrated: false`.
 
 ## Why This?
 
@@ -10,7 +12,7 @@ Current RAG systems use heuristic thresholds for confidence. No production tool 
 
 | Feature | Other Tools | conformal-rag |
 |---------|------------|---------------|
-| Guarantee type | Heuristic thresholds | FDR ≤ α (provable) |
+| Guarantee type | Heuristic thresholds | E[P(approved ∧ wrong)] ≤ α (Bates et al. 2021) |
 | Scoring | Embeddings or basic NLI | Hybrid NLI + LLM judge |
 | Calibration | Static | Online adaptive (handles drift) |
 | Domain support | Global threshold | Per-domain (finance α=0.01, medical α=0.001) |
@@ -46,16 +48,15 @@ print(result.abstained)      # False (risk below threshold)
 print(result.risk_bound)     # 0.05 (guaranteed FDR)
 ```
 
-### Gradio Demo
+### Web UI
 
 ```bash
 set PYTHONPATH=src
-pip install gradio
-python demo/app.py
-# Opens at http://localhost:7860
+uvicorn conformal_rag.api:create_app --factory --port 8000
+# Opens at http://localhost:8000
 ```
 
-Three tabs: **Predict** (query + risk check), **Calibrate** (label data), **Monitor** (live FDR tracking).
+A dependency-free vanilla JS frontend ("Ember Console" — warm charcoal, ember/sage accents, Bricolage Grotesque + Space Mono) is served by the same FastAPI process (no CORS, no build step). Four views: **Check an Answer** (setup + sources + risk verdict with a semicircular support dial), **Teach It** (calibration/labeling), **Live Status** (report card, FDR/coverage/threshold charts, feedback), **Topics** (per-domain registration, calibration, drift).
 
 ## How It Works
 
@@ -75,11 +76,22 @@ Query + Retrieved Context + LLM Response
     └──────────┬──────────┘
                │
                ▼
-    ┌─────────────────────┐
-    │  Conformal Engine   │
-    │  CRC (MAPIE v1)     │  FDR ≤ α guaranteed
-    │  Threshold: 0.45    │
-    └──────────┬──────────┘
+┌─────────────────────┐
+     │  Conformal Engine   │
+     │  CRC (Bates 2021)   │  E[P(approved ∧ wrong)] ≤ α
+     │  Threshold: 0.5*    │  *default until calibrated
+     └──────────┬──────────┘
+                │
+                ▼
+     ┌─────────────────────┐
+     │  Approve / Abstain  │  score > threshold → approve
+     └──────────┬──────────┘  (ties abstain — required for the bound)
+                │
+                ▼  true label arrives later
+     ┌─────────────────────┐
+     │  Monitor + ACI      │  observed FDR, and a feedback
+     │  (Gibbs & Candès)   │  controller that re-tunes the threshold
+     └─────────────────────┘
                │
                ▼
     Risk Score + Abstention + Confidence Interval
@@ -91,7 +103,7 @@ Query + Retrieved Context + LLM Response
 |-----------|-------------|---------|
 | **NLI Scorer** | Claim-level faithfulness scoring | DeBERTa-v3-large MNLI |
 | **LLM Judge** | Deterministic faithfulness verification | LiteLLM (multi-provider) |
-| **CRC Engine** | FDR control via conformal prediction | MAPIE v1 |
+| **CRC Engine** | FDR control via conformal prediction | Hand-rolled CRC (Bates et al. 2021) |
 | **Online Adaptive** | Handles distribution shift | ACI algorithm |
 | **Hybrid Retrieval** | Dense + sparse with RRF | Sentence Transformers + BM25 |
 | **Per-Domain Calibration** | Different α per domain | Custom |
@@ -118,7 +130,7 @@ result = rag.check("What is the P/E ratio of Apple?", response="28.5")
 
 ## Real-Time Performance
 
-Tested on CPU (no GPU required):
+Tested on CPU (no GPU required), DeBERTa-v3-large NLI:
 
 | Component | First Call | Subsequent |
 |-----------|-----------|------------|
@@ -126,10 +138,21 @@ Tested on CPU (no GPU required):
 | Hybrid Retrieval | 8.7s (embedder load) | <100ms |
 | Full Pipeline | 19s (calibration) | 1.8s/predict |
 
-**Accuracy:**
-- Faithful response → risk=0.9995, NOT abstained ✓
-- Hallucination → risk=0.0004, ABSTAINED ✓
-- Discrimination gap: 0.9991
+The `small` preset (`cross-encoder/nli-deberta-v3-small`) is ~10x faster on CPU and is what the bundled CLI demo uses. Calibration batches NLI claims through padded forward passes, which is another 5-10x over per-claim calls.
+
+**Scoring behaviour (illustrative, uncalibrated threshold 0.5):**
+- Faithful response → faithfulness≈1.00, NOT abstained ✓
+- Hallucination → faithfulness≈0.00, ABSTAINED ✓
+
+Note `risk_score` holds *faithfulness*: **higher = more supported**. See "Score Convention" below.
+
+## Score Convention
+
+`risk_score` is a historical name that holds a **faithfulness** score: **higher means the response is better supported by the context.**
+
+- `abstained = (risk_score <= threshold)` — ties abstain, which is what preserves the finite-sample guarantee
+- An uncalibrated engine uses a plain threshold of 0.5 and reports `calibrated: false`
+- `risk_bound` is α — the promised bound, not a prediction about this response
 
 ## API Reference
 
@@ -155,13 +178,13 @@ result = engine.predict(query, context, response)
 ### REST API
 
 ```bash
-# Start server
-uvicorn conformal_rag.api:app --port 8000
+# Start server (also serves the web UI at /)
+uvicorn conformal_rag.api:create_app --factory --port 8000
 
 # Predict with risk control
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"query": "What is Python?", "context": ["Python is a language."]}'
+  -d '{"query": "What is Python?", "context": ["Python is a language."], "response": "Python is a snake."}'
 
 # Calibrate
 curl -X POST http://localhost:8000/calibrate \
@@ -170,6 +193,28 @@ curl -X POST http://localhost:8000/calibrate \
 
 # Health check
 curl http://localhost:8000/health
+```
+
+### Production Configuration
+
+All hardening is opt-in via environment variables — with none set, the server
+runs exactly as before (no auth, in-memory state):
+
+| Variable | Effect |
+|----------|--------|
+| `CONFORMAL_RAG_API_KEY` | Require this key in the `X-API-Key` header on every route except `/health` and the static frontend |
+| `CONFORMAL_RAG_RATE_LIMIT_PER_MINUTE` | Per-client-IP request limit (429 when exceeded); 0 = unlimited |
+| `CONFORMAL_RAG_CORS_ORIGINS` | Comma-separated allowed origins for CORS; empty = none (frontend is same-origin) |
+| `CONFORMAL_RAG_STATE_DIR` | Directory for persisting calibration, document index, and domain state as JSON; restored at startup |
+| `CONFORMAL_RAG_LOG_LEVEL` | Package log level (default `INFO`) |
+| `CONFORMAL_RAG_ALPHA` | Default α (clamped to [0.001, 0.2]) |
+
+```bash
+# Example: hardened deploy
+CONFORMAL_RAG_API_KEY=*** \
+CONFORMAL_RAG_RATE_LIMIT_PER_MINUTE=60 \
+CONFORMAL_RAG_STATE_DIR=./state \
+uvicorn conformal_rag.api:create_app --factory --port 8000
 ```
 
 ## Benchmarks
@@ -191,7 +236,7 @@ All 5 plugins: `python -m benchmarks.runner` (with `--llm-judge` for LLM judge)
 conformal-rag/
 ├── src/conformal_rag/
 │   ├── __init__.py          # Package exports
-│   ├── engine.py            # CRC engine (MAPIE v1)
+│   ├── engine.py            # CRC engine (Bates et al. 2021)
 │   ├── scoring.py           # NLI + LLM judge hybrid
 │   ├── retrieval.py         # Hybrid dense + sparse retrieval
 │   ├── online.py            # Online adaptive conformal
@@ -203,7 +248,7 @@ conformal-rag/
 │   ├── config.py            # Configuration
 │   ├── api.py               # FastAPI endpoints
 │   └── client.py            # Python client SDK
-├── tests/                   # 105 core tests (all passing)
+├── tests/                   # 192 core tests (all passing)
 ├── benchmarks/              # Evaluation scripts
 │   ├── runner.py            # Multi-benchmark CLI runner
 │   ├── _common.py           # Shared helpers (scoring, injection, aggregation)
@@ -217,8 +262,10 @@ conformal-rag/
 ├── docs/                    # Specs, plans, research
 │   ├── paper/draft.md       # Paper draft (v0.2)
 │   └── superpowers/         # Design specs, plans
-├── demo/                    # Gradio web UI
-│   └── app.py               # Predict/Calibrate/Monitor tabs
+├── frontend/                # Vanilla JS web UI (served by FastAPI)
+│   ├── index.html           # Check an Answer / Teach It / Live Status / Topics
+│   ├── css/styles.css       # Ember Console theme (charcoal + ember/sage)
+│   └── js/                  # api client, app logic, labeled SVG charts
 ├── pyproject.toml           # Package config
 ├── Dockerfile               # Container config
 ├── docker-compose.yml       # Local services
@@ -240,7 +287,7 @@ pytest tests/ -v
 docker-compose up -d  # Qdrant + Redis + PostgreSQL
 
 # Run server
-uvicorn conformal_rag.api:app --reload --port 8000
+uvicorn conformal_rag.api:create_app --factory --reload --port 8000
 ```
 
 ## Roadmap
@@ -252,19 +299,20 @@ uvicorn conformal_rag.api:app --reload --port 8000
 - [x] Correct FDR computation (ACI fix)
 - [x] Real hybrid retrieval (in-memory + Qdrant)
 
-### Phase 2: Evaluation (Complete)
-- [x] HotpotQA benchmark — FDR=0% ≤ 5% PASS
-- [x] RAGTruth benchmark — FDR=0% ≤ 5% PASS
-- [x] Prove FDR ≤ α on real data
+### Phase 2: Evaluation (Framework Complete — LLM-judge run PENDING)
+- [x] HotpotQA benchmark plugin
+- [x] RAGTruth benchmark plugin
 - [x] Latency profiling (p50/p95/p99)
 - [x] Cost tracking + budget simulation
 - [x] 3 additional plugin benchmarks (FinanceBench, HaluEval, MultiHop-RAG)
+- [x] Statistical CRC tests on exchangeable synthetic samples (`tests/test_crc.py`)
+- [ ] **Benchmark run with `--llm-judge` on real data** — blocked by an AppLocker policy on this machine that blocks the `datasets` DLL. NLI-only runs pass trivially because the model abstains on 100% of RAGTruth. Until this is run, the results section has no real numbers.
 
 ### Phase 3: Deployment (Complete)
 - [x] Docker multi-stage build (uv, slim, healthcheck)
 - [x] docker-compose.yml with full service stack
 - [x] Fly.io deployment config
-- [x] CI/CD workflows (GitHub Actions)
+- [x] CI/CD workflows (GitHub Actions, incl. Qdrant + Redis service containers)
 - [x] PyPI metadata audit
 
 ### Phase 4: Publication
@@ -274,7 +322,7 @@ uvicorn conformal_rag.api:app --reload --port 8000
 - [ ] Open source launch (after arXiv)
 
 ### Phase 5: Elevation
-- [x] Gradio demo UI (Predict/Calibrate/Monitor tabs)
+- [x] Web UI (Ember Console: Check an Answer / Teach It / Live Status / Topics, served by FastAPI)
 - [x] Research findings documented (RESEARCH.md updated)
 - [ ] HuggingFace Spaces deployment (public shareable URL)
 - [ ] Chrome extension (highlight text → conformal verdict)
