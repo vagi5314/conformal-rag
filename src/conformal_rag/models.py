@@ -59,6 +59,10 @@ class ScoringBreakdown(BaseModel):
     nli_latency_ms: float
     llm_latency_ms: Optional[float] = None
     used_llm_judge: bool = False
+    # True when the judge was attempted (score in the uncertain band) but the
+    # call failed, so the NLI score was used alone. Distinguishes "judge not
+    # needed" from "judge unavailable" for the UI.
+    judge_failed: bool = False
 
 
 class ConformalResult(BaseModel):
@@ -70,6 +74,10 @@ class ConformalResult(BaseModel):
     risk_bound: float = Field(ge=0.0)
     abstained: bool
     calibrated: bool = False
+    # The exact cut used for this decision, and the tolerance it was derived
+    # from, so a client never has to guess which threshold produced the verdict.
+    threshold: Optional[float] = None
+    alpha: Optional[float] = None
     confidence_interval: tuple[float, float]
     scoring_breakdown: ScoringBreakdown
     domain: str = "default"
@@ -96,7 +104,9 @@ class DriftStatus(BaseModel):
 
     domain: str
     drifted: bool
-    fdr: float
+    # The guarantee quantity: of the answers this domain approved, the share
+    # that were actually wrong.
+    approved_wrong_rate: float
     threshold: float
     samples: int
     coverage: float
@@ -112,6 +122,17 @@ class CalibrationStats(BaseModel):
     n_hallucinations: int
     threshold: float
     estimated_fdr: float
+    # The quantity the CRC guarantee actually bounds, estimated in-sample:
+    # (# approved AND wrong) / n. Compare this against alpha.
+    approved_wrong_rate: float = 0.0
+    # Of the answers withheld as risky, the share that were actually fine.
+    # A high value means the threshold is expensive, not that it is wrong.
+    false_alarm_rate: float = 0.0
     coverage: float
+    # Smallest calibration set that can certify this alpha: ceil(1/alpha) - 1.
+    # Below this the engine abstains on everything; the UI shows a progress meter.
+    min_samples_required: int = 0
+    # True when n_samples >= min_samples_required, i.e. the guarantee is live.
+    certifiable: bool = True
     weights: tuple[float, float] = (0.6, 0.4)
     warnings: list[str] = Field(default_factory=list)

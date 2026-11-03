@@ -14,7 +14,8 @@ class LLMConfig:
     max_tokens: int = 10
     timeout: float = 30.0
     fallback_chain: List[str] = field(default_factory=lambda: [
-        "groq/llama-3.3-70b-versatile",
+        "groq/qwen/qwen3.8-27b",
+        "groq/openai/gpt-oss-120b",
         "openrouter/meta-llama/llama-3.1-8b-instruct:free",
         "together_ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         "gemini/gemini-2.5-flash",

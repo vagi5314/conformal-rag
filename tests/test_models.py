@@ -136,7 +136,7 @@ class TestDriftStatus:
         status = DriftStatus(
             domain="finance",
             drifted=False,
-            fdr=0.008,
+            approved_wrong_rate=0.008,
             threshold=0.42,
             samples=1200,
             coverage=0.85,

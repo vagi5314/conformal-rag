@@ -1,57 +1,44 @@
-/* api.js — fetch wrapper for the conformal-rag REST API (same origin) */
+/* Thin wrapper over the REST API. Every failure surfaces as an Error with a
+   message that is safe to show to a person. */
 
 const API = (() => {
-  async function request(method, path, body) {
-    const options = { method, headers: {} };
-    if (body !== undefined) {
-      options.headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(body);
+  async function request(path, options) {
+    let res;
+    try {
+      res = await fetch(path, options);
+    } catch (err) {
+      throw new Error("Cannot reach the server. Check that the demo is still running.");
     }
-    const res = await fetch(path, options);
+
     if (!res.ok) {
-      let detail = `${res.status} ${res.statusText}`;
+      let detail = `Request failed with status ${res.status}.`;
       try {
-        const err = await res.json();
-        if (err.detail) {
-          detail = typeof err.detail === "string"
-            ? err.detail
-            : JSON.stringify(err.detail);
+        const body = await res.json();
+        if (body && body.detail) {
+          detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
         }
-      } catch (_) { /* non-JSON error body */ }
+      } catch (err) {
+        /* keep the status message */
+      }
       throw new Error(detail);
     }
+
     return res.json();
   }
 
-  const get = (path) => request("GET", path);
-  const post = (path, body) => request("POST", path, body);
-
-  return {
-    health: () => get("/health"),
-    getConfig: () => get("/config"),
-    setConfig: (alpha, online) => post("/config", { alpha, online }),
-    reset: () => post("/reset"),
-
-    samples: () => get("/samples"),
-    index: (documents) => post("/index", { documents }),
-    documents: () => get("/documents"),
-    retrieve: (query, finalK = 5) => post("/retrieve", { query, final_k: finalK }),
-
-    predict: (query, context, response, domain) =>
-      post("/predict", { query, context, response, domain }),
-    calibrate: (data, domain = "default") => post("/calibrate", { data, domain }),
-    calibration: () => get("/calibration"),
-    record: (query, context, response, actualHallucination) =>
-      post("/record", {
-        query, context, response,
-        actual_hallucination: actualHallucination,
-      }),
-    metrics: () => get("/metrics"),
-    online: () => get("/online"),
-
-    listDomains: () => get("/domains"),
-    registerDomain: (name, alpha) => post("/domains", { name, alpha }),
-    calibrateDomain: (name, data) => post(`/domains/${encodeURIComponent(name)}/calibrate`, { data }),
-    domainDrift: (name) => get(`/domains/${encodeURIComponent(name)}/drift`),
+  const get = (path) => request(path);
+  const post = (path, body) =>
+    request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  /* Multipart upload: the browser sets the Content-Type boundary itself. */
+  const upload = (path, file) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request(path, { method: "POST", body });
   };
+
+  return { get, post, upload };
 })();

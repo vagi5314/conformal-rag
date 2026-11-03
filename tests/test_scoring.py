@@ -110,3 +110,18 @@ class TestScoringPipeline:
             result = pipeline.score("query", "context", "response")
             assert result.used_llm_judge is True
             assert 0.0 <= result.final_score <= 1.0
+
+    def test_judge_failure_degrades_to_nli(self):
+        """A provider outage must not raise (it used to 500 /predict)."""
+        pipeline = ScoringPipeline(use_llm_judge=True)
+        with patch.object(pipeline.nli, "score", return_value=0.497), \
+             patch.object(
+                 pipeline.llm_judge,
+                 "score",
+                 side_effect=RuntimeError("All LLM providers failed"),
+             ):
+            result = pipeline.score("query", "context", "response")
+            assert result.final_score == 0.497
+            assert result.used_llm_judge is False
+            assert result.judge_failed is True
+            assert result.llm_judge_score is None

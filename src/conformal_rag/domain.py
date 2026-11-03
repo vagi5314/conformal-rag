@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 
 from conformal_rag.engine import ConformalRAGEngine
+from conformal_rag.scoring import ScoringPipeline
 from conformal_rag.models import CalibrationStats, ConformalResult, DriftStatus
 from conformal_rag.guards import clamp_alpha
 from conformal_rag.monitoring import FDRMonitor
@@ -37,10 +38,16 @@ class DomainManager:
         routing: str = "embedding",
         route_margin: float = 0.55,
         embedding_model: str = "intfloat/e5-base-v2",
+        nli_model: str = "small",
+        use_llm_judge: bool = True,
+        fallback_chain: Optional[List[str]] = None,
     ):
         self.routing = routing
         self.route_margin = route_margin
         self.embedding_model = embedding_model
+        self.nli_model = nli_model
+        self.use_llm_judge = use_llm_judge
+        self.fallback_chain = fallback_chain
         self.domains: Dict[str, ConformalRAGEngine] = {}
         self.monitors: Dict[str, FDRMonitor] = {}
         self._domain_drift: Dict[str, list] = {}
@@ -51,7 +58,14 @@ class DomainManager:
     def register_domain(self, domain: str, alpha: float = 0.05) -> None:
         """Register a new domain with its own alpha."""
         a = clamp_alpha(alpha)
-        self.domains[domain] = ConformalRAGEngine(alpha=a)
+        self.domains[domain] = ConformalRAGEngine(
+            alpha=a,
+            scoring=ScoringPipeline(
+                nli_model=self.nli_model,
+                use_llm_judge=self.use_llm_judge,
+                fallback_chain=self.fallback_chain,
+            ),
+        )
         self.monitors[domain] = FDRMonitor(alpha=a)
         self._domain_drift[domain] = []
         self._domain_queries.setdefault(domain, [])
@@ -216,7 +230,7 @@ class DomainManager:
             return DriftStatus(
                 domain=domain,
                 drifted=False,
-                fdr=0.0,
+                approved_wrong_rate=0.0,
                 threshold=0.5,
                 samples=0,
                 coverage=1.0,
@@ -226,22 +240,24 @@ class DomainManager:
         engine = self.domains[domain]
         monitor = self.monitors.get(domain)
         if monitor is None:
-            recent_fdr = engine.alpha
+            recent_rate = 0.0
             samples = 0
+            coverage = 1.0
         else:
             m = monitor.get_metrics()
-            recent_fdr = m["fdr"]
-            samples = m["total_predictions"]
+            recent_rate = m["approved_wrong_rate"]
+            samples = m["labeled_feedback"]
+            coverage = m["coverage"]
 
-        drifted = recent_fdr > engine.alpha * 1.5
+        drifted = samples > 0 and recent_rate > engine.alpha * 1.5
 
         return DriftStatus(
             domain=domain,
             drifted=drifted,
-            fdr=recent_fdr,
+            approved_wrong_rate=recent_rate,
             threshold=engine._threshold or 0.5,
             samples=samples,
-            coverage=1.0 - recent_fdr if samples else 1.0,
+            coverage=coverage,
             recommendation="Re-calibrate" if drifted else "No drift detected",
         )
 
@@ -280,6 +296,11 @@ class DomainManager:
             if name not in self.domains:
                 self.register_domain(name)
             if self.domains[name].load_state(f):
+                # The domain's own alpha came back with its state; keep the
+                # drift monitor on the same tolerance.
+                monitor = self.monitors.get(name)
+                if monitor is not None:
+                    monitor.alpha = self.domains[name].alpha
                 loaded.append(name)
         routing_file = directory / _ROUTING_STATE
         if routing_file.is_file():

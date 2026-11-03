@@ -60,38 +60,62 @@ class FDRMonitor:
         )
 
     def get_metrics(self) -> dict:
-        """Get current monitoring metrics."""
+        """Monitoring metrics.
+
+        Two different rates are reported, and they answer different questions:
+
+        ``approved_wrong_rate``
+            The quantity the CRC guarantee actually bounds:
+            ``E[P(approved AND wrong)] <= alpha``. Estimated over labeled
+            feedback only, because an unlabeled prediction cannot contribute a
+            true label. This is the number to plot against alpha.
+
+        ``false_alarm_rate``
+            Of the answers the system flagged as risky, how many were actually
+            fine. Useful, but it is *not* the guarantee. Earlier versions
+            returned this value under the name "fdr" while the UI captioned it
+            as the guarantee, which was misleading.
+        """
         total = self._n_predictions
         if total == 0:
             return {
                 "total_predictions": 0,
-                "fdr": 0.0,
+                "approved_wrong_rate": 0.0,
+                "false_alarm_rate": 0.0,
                 "coverage": 1.0,
                 "abstention_rate": 0.0,
                 "labeled_feedback": 0,
             }
 
-        predicted_hallucinations = sum(
-            1 for r in self.records if r.predicted_hallucination
+        labeled = len(self.records)
+        flagged = sum(1 for r in self.records if r.predicted_hallucination)
+        approved_wrong = sum(
+            1
+            for r in self.records
+            if not r.predicted_hallucination and r.actual_hallucination
         )
-        false_positives = sum(
-            1 for r in self.records
+        false_alarms = sum(
+            1
+            for r in self.records
             if r.predicted_hallucination and not r.actual_hallucination
         )
 
-        fdr = false_positives / predicted_hallucinations if predicted_hallucinations > 0 else 0.0
         abstention_rate = self._n_abstained / total
-        coverage = 1.0 - abstention_rate
 
         return {
             "total_predictions": total,
-            "fdr": fdr,
-            "coverage": coverage,
+            "approved_wrong_rate": approved_wrong / labeled if labeled else 0.0,
+            "false_alarm_rate": false_alarms / flagged if flagged else 0.0,
+            "coverage": 1.0 - abstention_rate,
             "abstention_rate": abstention_rate,
-            "labeled_feedback": len(self.records),
+            "labeled_feedback": labeled,
         }
 
     def is_violating(self) -> bool:
-        """Check if the false-alarm rate is violating the bound."""
+        """Whether the observed approved-and-wrong rate exceeds the promise.
+
+        Compares the guarantee quantity to alpha, with a 1.5x band so ordinary
+        small-sample noise does not trip the flag.
+        """
         metrics = self.get_metrics()
-        return metrics["fdr"] > self.alpha * self.violation_threshold
+        return metrics["approved_wrong_rate"] > self.alpha * self.violation_threshold

@@ -23,6 +23,20 @@ _nli_cache: dict = {}
 # Label names that mean "the hypothesis follows from the premise".
 _ENTAILMENT_LABELS = {"entailment", "entail", "entails", "true", "yes"}
 
+# Split a passage into sentences, keeping the terminator. The cross-encoder
+# NLI model is punctuation sensitive: the same claim scores 0.93 as a sentence
+# and 0.02 as a bare fragment, so claims and premises both keep their stops.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+# A claim is checked against each sentence and against overlapping windows of
+# this many sentences, keeping the best match. The small cross-encoder degrades
+# badly with premise length: the same claim scores 0.99 against a three-sentence
+# window, 0.005 against the whole document, and an unrelated claim reaches 0.02
+# against the whole document (a false approval). Single sentences catch a
+# verbatim restatement; windows supply the context that resolves pronouns.
+_PREMISE_WINDOW = 3
+_MAX_PREMISES = 48
+
 
 def _entailment_index(model) -> int:
     """Find the entailment class index from the model's own label map.
@@ -109,34 +123,27 @@ class NLIScorer:
         self._load_model()
         decomposed = [self._decompose(response) for _, response in pairs]
 
-        flat_ctx: list[str] = []
-        flat_claim: list[str] = []
-        owner: list[int] = []
+        flat: list[tuple[str, str]] = []
+        claim_of: list[tuple[int, int]] = []
         for i, ((ctx, _), claims) in enumerate(zip(pairs, decomposed)):
-            for claim in claims:
-                flat_ctx.append(ctx)
-                flat_claim.append(claim)
-                owner.append(i)
+            premises = self._premises(ctx)
+            for ci, claim in enumerate(claims):
+                for premise in premises:
+                    flat.append((premise, claim))
+                    claim_of.append((i, ci))
+
+        # Per (response, claim) keep the best window, then average over the
+        # response's claims — the same result `score()` computes one at a time.
+        best_claim: dict[tuple[int, int], float] = {}
+        for key, value in zip(claim_of, self._score_pairs(flat, batch_size)):
+            if value > best_claim.get(key, -1.0):
+                best_claim[key] = value
 
         totals = [0.0] * len(pairs)
         counts = [0] * len(pairs)
-        for start in range(0, len(flat_ctx), batch_size):
-            batch_ctx = flat_ctx[start:start + batch_size]
-            batch_claim = flat_claim[start:start + batch_size]
-            inputs = self._tokenizer(
-                batch_ctx, batch_claim,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-                padding=True,
-            )
-            with torch.no_grad():
-                logits = self._model(**inputs).logits.float()
-            probs = torch.softmax(logits, dim=-1)[:, self._entailment_idx]
-            for j, p in enumerate(probs.tolist()):
-                i = owner[start + j]
-                totals[i] += p
-                counts[i] += 1
+        for (i, _ci), value in best_claim.items():
+            totals[i] += value
+            counts[i] += 1
 
         return [
             totals[i] / counts[i] if counts[i] else 0.5
@@ -147,25 +154,77 @@ class NLIScorer:
         claims = self._decompose(response)
         if not claims:
             return 0.5
-        scores = [self._score_claim(context, claim) for claim in claims]
-        return sum(scores) / len(scores)
+        premises = self._premises(context)
+        scores = self._score_pairs([(p, c) for c in claims for p in premises])
+        width = len(premises)
+        per_claim = [
+            max(scores[i * width:(i + 1) * width]) for i in range(len(claims))
+        ]
+        return sum(per_claim) / len(per_claim)
 
     def _decompose(self, text: str) -> list:
-        sentences = re.split(r'[.!?]+', text)
-        return [s.strip() for s in sentences if len(s.strip()) > 10]
+        claims = []
+        for part in _SENTENCE_SPLIT.split(text):
+            s = part.strip()
+            if len(s.rstrip(".!? ")) <= 10:
+                continue
+            claims.append(s if s[-1] in ".!?" else s + ".")
+        return claims
+
+    def _premises(self, context: str) -> list:
+        """Premises a claim is checked against: sentences and 3-sentence windows.
+
+        The small NLI model is only reliable on a local premise. Scored against
+        a whole multi-paragraph document, a faithful claim drops to ~0.005 while
+        an unrelated claim can climb to ~0.02: wrong in both directions. A
+        single sentence catches a verbatim restatement; an overlapping window
+        keeps the surrounding context that resolves pronouns.
+        """
+        text = context.strip()
+        sentences = [p.strip() for p in _SENTENCE_SPLIT.split(text) if p.strip()]
+        if not sentences:
+            return [" "]
+        premises = list(sentences)
+        if len(sentences) > _PREMISE_WINDOW:
+            premises.extend(
+                " ".join(sentences[i:i + _PREMISE_WINDOW])
+                for i in range(len(sentences) - _PREMISE_WINDOW + 1)
+            )
+        elif text not in premises:
+            premises.append(text)
+        seen: set[str] = set()
+        unique = [p for p in premises if not (p in seen or seen.add(p))]
+        return unique[:_MAX_PREMISES]
+
+    def _score_pairs(self, pairs: list[tuple[str, str]], batch_size: int = 16) -> list[float]:
+        """Batched entailment probability for (premise, claim) pairs."""
+        if not pairs:
+            return []
+        self._load_model()
+        scores: list[float] = []
+        for start in range(0, len(pairs), batch_size):
+            batch = pairs[start:start + batch_size]
+            inputs = self._tokenizer(
+                [p for p, _ in batch],
+                [c for _, c in batch],
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            )
+            with torch.no_grad():
+                logits = self._model(**inputs).logits.float()
+            probs = torch.softmax(logits, dim=-1)[:, self._entailment_idx]
+            scores.extend(probs.tolist())
+        return scores
 
     def _score_claim(self, context: str, claim: str) -> float:
-        self._load_model()
-        inputs = self._tokenizer(
-            context, claim,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-        )
-        with torch.no_grad():
-            logits = self._model(**inputs).logits.float()
-        probs = torch.softmax(logits, dim=-1)
-        return probs[0][self._entailment_idx].item()
+        """Best window score for one claim against a context."""
+        premises = self._premises(context)
+        return max(self._score_pairs([(p, claim) for p in premises]))
+
+    def _score_pair(self, premise: str, claim: str) -> float:
+        return self._score_pairs([(premise, claim)])[0]
 
     def get_confidence(self, query: str, context: str, response: str) -> float:
         return abs(self.score(query, context, response) - 0.5) * 2
@@ -207,7 +266,9 @@ class LLMJudge:
             Float 0-1, higher = more faithful.
         """
         prompt = self._build_prompt(query, context, response)
-        result = self.client.complete(prompt)
+        # Reasoning-style models emit thinking tokens before the answer, so a
+        # 10-token budget can come back empty. 48 is still a fraction of a cent.
+        result = self.client.complete(prompt, max_tokens=48)
         # Accept "0.85", "85%", ".85", and bare "0"/"1" — but never bare
         # multi-digit integers like "85", which would clamp to 1.0 and
         # silently approve anything.
@@ -238,12 +299,18 @@ class ScoringPipeline:
         use_llm_judge: bool = True,
         nli_confidence_threshold: float = 0.7,
         weights: tuple[float, float] = (0.6, 0.4),
-        nli_model: str = "large",
+        nli_model: str = "small",
         use_float16: bool = False,
+        fallback_chain: Optional[list[str]] = None,
     ):
         model_name = self.NLI_PRESETS.get(nli_model, nli_model)
         self.nli = NLIScorer(primary_model=model_name, use_float16=use_float16)
-        self.llm_judge = LLMJudge() if use_llm_judge else None
+        judge_config = (
+            LLMConfig(fallback_chain=list(fallback_chain))
+            if fallback_chain
+            else LLMConfig()
+        )
+        self.llm_judge = LLMJudge(config=judge_config) if use_llm_judge else None
         self.use_llm_judge = use_llm_judge
         self.nli_confidence_threshold = nli_confidence_threshold
         self.weights = weights
@@ -274,9 +341,26 @@ class ScoringPipeline:
                 used_llm_judge=False,
             )
 
-        # LLM judge path (uncertain cases)
+        # LLM judge path (uncertain cases). A provider outage or a missing key
+        # must never take the endpoint down — on any judge failure we degrade
+        # to the NLI score alone and flag it in the breakdown.
         llm_start = time.time()
-        llm_score = self.llm_judge.score(query, context, response)
+        try:
+            llm_score = self.llm_judge.score(query, context, response)
+        except Exception as e:
+            logger.warning(
+                "LLM judge unavailable (%s: %s); using NLI score only",
+                type(e).__name__, e,
+            )
+            return ScoringBreakdown(
+                nli_score=nli_score,
+                llm_judge_score=None,
+                final_score=nli_score,
+                nli_latency_ms=nli_latency,
+                llm_latency_ms=(time.time() - llm_start) * 1000,
+                used_llm_judge=False,
+                judge_failed=True,
+            )
         llm_latency = (time.time() - llm_start) * 1000
 
         # Weighted ensemble

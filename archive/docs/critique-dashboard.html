@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Critique · Conformal RAG Monitoring Dashboard</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#f4f3ef; --ink:#16150f; --muted:#6b675c; --line:#d9d6cc;
+    --accent:#9a3412; --paper:#fcfbf7;
+    --font: ui-serif, Georgia, 'Times New Roman', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  }
+  body { background:var(--bg); color:var(--ink); font-family:var(--sans);
+    max-width:920px; margin:0 auto; padding:48px 28px 64px; line-height:1.5; }
+  header { border-bottom:2px solid var(--ink); padding-bottom:18px; margin-bottom:8px; }
+  .kicker { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.18em;
+    text-transform:uppercase; color:var(--muted); }
+  h1 { font-family:var(--font); font-size:2.1rem; font-weight:600; letter-spacing:-0.02em;
+    margin-top:6px; }
+  .verdict { font-family:var(--serif); font-style:italic; color:var(--accent);
+    margin-top:10px; font-size:1.05rem; }
+  .meta { display:flex; gap:18px; font-family:var(--mono); font-size:0.7rem;
+    color:var(--muted); margin-top:14px; text-transform:uppercase; letter-spacing:0.05em; }
+
+  .radar-wrap { display:flex; gap:32px; align-items:center; margin:36px 0 8px;
+    flex-wrap:wrap; }
+  .radar-wrap svg { flex:none; }
+  .legend { font-size:0.85rem; color:var(--muted); max-width:300px; }
+  .legend strong { color:var(--ink); }
+
+  .card { background:var(--paper); border:1px solid var(--line); border-radius:10px;
+    padding:22px 24px; margin-top:18px; }
+  .card-head { display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:12px; }
+  .card-head h2 { font-family:var(--font); font-size:1.25rem; font-weight:600; }
+  .score { font-family:var(--mono); font-size:1.5rem; font-weight:600; }
+  .band { font-family:var(--mono); font-size:0.66rem; text-transform:uppercase;
+    letter-spacing:0.1em; color:var(--muted); }
+  .evidence { font-size:0.9rem; color:#34322a; }
+  .tags { display:flex; gap:10px; margin-top:12px; font-size:0.78rem; font-family:var(--mono); }
+  .tag { padding:2px 8px; border-radius:4px; }
+  .tag.keep { background:rgba(154,52,18,0.08); color:var(--accent); }
+  .tag.fix { background:#efe9dd; color:#5a5340; }
+  .tag.win { background:#e7ede6; color:#2f5233; }
+
+  .actions { margin-top:36px; }
+  .actions h2 { font-family:var(--font); font-size:1.4rem; font-weight:600;
+    margin-bottom:14px; }
+  .alist { list-style:none; }
+  .alist li { padding:10px 14px; border:1px solid var(--line); border-radius:8px;
+    margin-bottom:8px; background:var(--paper); font-size:0.88rem; display:flex; gap:10px; }
+  .alist li::before { content:''; width:14px; height:14px; flex:none; margin-top:2px;
+    border:1.5px solid var(--muted); border-radius:3px; }
+  .alist.keep li::before { border-color:var(--accent); background:var(--accent); }
+  .alist h3 { font-family:var(--mono); font-size:0.7rem; text-transform:uppercase;
+    letter-spacing:0.12em; color:var(--muted); margin:22px 0 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="kicker">OD · Critique skill · 5-dimension review</div>
+  <h1>Conformal RAG · FDR Monitoring Dashboard</h1>
+  <div class="verdict">Competent dev-tool dark UI, but textbook AI-slop median: emerald accent, area chart, zero memorable moves.</div>
+  <div class="meta">
+    <span>Artifact: dashboard.html</span>
+    <span>Reviewer: OD Critique</span>
+    <span>Date: 2026-07-12</span>
+  </div>
+</header>
+
+<div class="radar-wrap">
+  <svg width="320" height="320" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+    <g stroke="#d9d6cc" stroke-width="1" fill="none">
+      <polygon points="200,50 354,181 290,330 110,330 46,181"/>
+      <polygon points="200,112 300,201 257,278 143,278 100,201"/>
+      <polygon points="200,175 246,222 223,256 177,256 154,222"/>
+      <polygon points="200,237 192,242 194,250 206,250 208,242"/>
+    </g>
+    <g stroke="#c8c4b8" stroke-width="0.5">
+      <line x1="200" y1="200" x2="200" y2="50"/>
+      <line x1="200" y1="200" x2="354" y2="181"/>
+      <line x1="200" y1="200" x2="290" y2="330"/>
+      <line x1="200" y1="200" x2="110" y2="330"/>
+      <line x1="200" y1="200" x2="46" y2="181"/>
+    </g>
+    <polygon points="200,95 299.9,167.6 252.9,272.8 138.3,284.9 142.9,181.5"
+      fill="rgba(154,52,18,0.22)" stroke="#9a3412" stroke-width="2"
+      stroke-linejoin="round"/>
+    <g fill="#9a3412">
+      <circle cx="200" cy="95" r="3.5"/>
+      <circle cx="299.9" cy="167.6" r="3.5"/>
+      <circle cx="252.9" cy="272.8" r="3.5"/>
+      <circle cx="138.3" cy="284.9" r="3.5"/>
+      <circle cx="142.9" cy="181.5" r="3.5"/>
+    </g>
+    <g fill="#6b675c" font-family="ui-monospace, monospace" font-size="11" text-anchor="middle">
+      <text x="200" y="38">Philosophy</text>
+      <text x="372" y="184">Hierarchy</text>
+      <text x="290" y="350">Detail</text>
+      <text x="110" y="350">Function</text>
+      <text x="28" y="184">Innovation</text>
+    </g>
+  </svg>
+  <div class="legend">
+    <p><strong>Mean: 6.2 / 10.</strong> Coherent direction and solid hierarchy carry it, but execution detail is uneven and innovation is at the generic median. The emerald + dark + area-chart combination is the single most replicated AI dashboard template on the web.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>1 · Philosophy consistency</h2>
+    <div><span class="score">7</span> <span class="band">Strong</span></div>
+  </div>
+  <p class="evidence">One clear direction — restrained dark "ops console" with a single green accent and mono numerals for every metric. The chrome vocabulary is consistent (uppercase mono labels, 1px hairline borders, 8px radius). The one drift is the accent itself: <code>#10b981</code> is the default emerald, which reads as template rather than chosen. Hierarchy of color (accent / amber / red) is held by one rule throughout.</p>
+  <div class="tags"><span class="tag keep">Keep single-accent rule</span><span class="tag fix">Fix generic emerald</span></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>2 · Visual hierarchy</h2>
+    <div><span class="score">7</span> <span class="band">Strong</span></div>
+  </div>
+  <p class="evidence">The 3.5rem hero FDR number (l.132) is unmistakably first-read; metric grid, charts, benchmarks, table form a clear primary→secondary→tertiary descent. Mono is used consistently for data, sans for labels — roles match. Weakness: the hero's right-hand α readout (l.134–136) is set in inline styles at a competing weight, and the four hero-meta stats (l.138–143) sit at near-equal loudness to the secondary panels, slightly flattening the tier.</p>
+  <div class="tags"><span class="tag keep">Keep hero scale</span><span class="tag fix">Fix hero-meta loudness</span></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>3 · Detail execution</h2>
+    <div><span class="score">6</span> <span class="band">Functional</span></div>
+  </div>
+  <p class="evidence">Clean grid math (1px gap dividers via background hack, l.66/73/82) and a working responsive breakpoint. But inline styles are sprinkled liberally (l.133–136, 139–142, 278–280) instead of living in the token system — a maintenance smell that also breaks the "one rule" claim. The FDR line chart baseline label "8% / 4% / 0%" (l.192–194) sits left of the plot with no axis line connecting it. Bar labels in the per-domain chart use <code>ui-monospace</code> inline (l.203) while everything else uses the <code>--mono</code> var — inconsistent.</p>
+  <div class="tags"><span class="tag keep">Keep 1px divider grid</span><span class="tag fix">Fix inline-style sprawl</span><span class="tag win">Unify mono font var</span></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>4 · Functionality</h2>
+    <div><span class="score">7</span> <span class="band">Strong</span></div>
+  </div>
+  <p class="evidence">As a static monitoring snapshot it works: table ellipsis on long queries (l.98), verdict chips, responsive collapse at 900px (l.108–116). Charts are pure inline SVG — no JS dependency, renders anywhere, prints cleanly. Gaps: no live timestamp/auto-refresh hint, the "All systems nominal" status (l.124) is decorative with no backing state, and the footer "Data as of" (l.280) is the only temporal anchor. Fine for a report, thin for an ops console.</p>
+  <div class="tags"><span class="tag keep">Keep SVG-only charts</span><span class="tag win">Wire status to real signal</span></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>5 · Innovation</h2>
+    <div><span class="score">4</span> <span class="band">Broken</span></div>
+  </div>
+  <p class="evidence">This is the median AI dashboard: dark bg, emerald accent, gradient-filled area chart (l.174–177), rounded metric tiles, a 4-up KPI strip, a table. Nothing makes a viewer lean in. The one near-move — plotting FDR against the α bound as a dashed red line (l.183) — is good information design but executed as a generic sparkline. An opportunity exists: a conformal "prediction-set coverage vs error" visual unique to this domain is unclaimed.</p>
+  <div class="tags"><span class="tag fix">Fix generic template</span><span class="tag win">Domain-native viz</span></div>
+</div>
+
+<div class="actions">
+  <h2>Action plan</h2>
+  <div class="alist keep">
+    <h3>Keep</h3>
+    <li>Single-accent color rule held across hero, metrics, charts, table.</li>
+    <li>Mono numerals for every data point — consistent data typography.</li>
+    <li>1px hairline divider grid (background-gap trick) — crisp, dependency-free.</li>
+    <li>SVG-only charts — portable, printable, no JS.</li>
+    <li>Clear hero → grid → charts → benchmarks → table reading order.</li>
+  </div>
+  <div class="alist">
+    <h3>Fix (P0 / P1)</h3>
+    <li>Replace default emerald <code>#10b981</code> with a deliberate, less-templated accent (oxide/ochre or a desaturated teal).</li>
+    <li>Eliminate all inline styles; move hero readout + meta into the token/class system.</li>
+    <li>De-flaten hero-meta so it reads as tertiary, not equal to the KPI strip.</li>
+    <li>Connect the FDR chart's left-axis labels to a real y-axis line.</li>
+  </div>
+  <div class="alist">
+    <h3>Quick wins</h3>
+    <li>Unify bar-label font to the <code>--mono</code> variable instead of inline <code>ui-monospace</code>.</li>
+    <li>Add a subtle covered-region band (α corridor) behind the FDR line instead of a lone dashed line.</li>
+    <li>Give the "All systems nominal" pill a real backing class so it can flip state.</li>
+    <li>Tighten table row height + add a hover tint for scan-ability.</li>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conformal RAG · Monitoring</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0c0c0c;
+    --surface: #141414;
+    --surface2: #1c1c1c;
+    --border: #2a2a2a;
+    --accent: #10b981;
+    --accent-dim: rgba(16, 185, 129, 0.12);
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --text: #e8e8e8;
+    --muted: #787878;
+    --radius: 8px;
+    --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  }
+  html { font-size: 14px; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 32px;
+    max-width: 1440px;
+    margin: 0 auto;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+  .top h1 { font-size: 1rem; font-weight: 500; color: var(--muted); letter-spacing: -0.01em; }
+  .top h1 strong { color: var(--text); font-weight: 600; }
+  .top-right { display: flex; align-items: center; gap: 16px; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--accent); }
+  .status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .version { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+
+  /* Hero metric */
+  .hero { margin-bottom: 32px; }
+  .hero-label { font-size: 0.78rem; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+  .hero-number {
+    font-family: var(--mono);
+    font-size: 3.5rem;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+  }
+  .hero-number small { font-size: 1.2rem; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+  .hero-sub {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .hero-sub strong { color: var(--text); font-weight: 500; }
+  .hero-row { display: flex; align-items: flex-end; gap: 48px; }
+  .hero-meta { display: flex; gap: 32px; margin-top: 8px; }
+
+  /* Metric grid */
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 24px; }
+  .metric-cell { background: var(--surface); padding: 16px 20px; }
+  .metric-cell .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; margin-bottom: 4px; }
+  .metric-cell .value { font-family: var(--mono); font-size: 1.4rem; font-weight: 500; }
+  .metric-cell .note { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+  /* Charts row */
+  .charts-row { display: grid; grid-template-columns: 1.6fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 24px; }
+  .chart-panel { background: var(--surface); padding: 20px 24px; }
+  .chart-panel h3 { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; margin-bottom: 16px; }
+  .chart-panel svg { width: 100%; height: auto; display: block; }
+
+  /* Section title */
+  .section-title { font-size: 0.78rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; margin-top: 24px; }
+
+  /* Benchmark grid */
+  .bench-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .bench-card { background: var(--surface); padding: 16px 20px; }
+  .bench-name { font-size: 0.85rem; font-weight: 500; margin-bottom: 2px; }
+  .bench-meta { font-size: 0.72rem; color: var(--muted); margin-bottom: 8px; }
+  .bench-result { font-family: var(--mono); font-size: 1.1rem; }
+  .bench-result.pass { color: var(--accent); }
+  .bench-result.fail { color: var(--red); }
+  .bench-result.pending { color: var(--amber); }
+  .bench-detail { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+  /* Table */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; padding: 10px 16px; color: var(--muted); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 0.82rem; }
+  tr:last-child td { border-bottom: none; }
+  td.query { font-family: var(--font); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td .verdict { font-family: var(--font); font-size: 0.72rem; font-weight: 500; padding: 2px 8px; border-radius: 3px; }
+  td .verdict.safe { background: var(--accent-dim); color: var(--accent); }
+  td .verdict.abstain { background: rgba(245, 158, 11, 0.12); color: var(--amber); }
+  .risk-low { color: var(--accent); }
+  .risk-mid { color: var(--amber); }
+  .risk-high { color: var(--red); }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+  @media (max-width: 900px) {
+    body { padding: 16px; }
+    .metric-grid { grid-template-columns: repeat(2, 1fr); }
+    .charts-row { grid-template-columns: 1fr; }
+    .bench-grid { grid-template-columns: 1fr; }
+    .hero-row { flex-direction: column; gap: 16px; }
+    .hero-meta { flex-wrap: wrap; gap: 16px; }
+    .hero-number { font-size: 2.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1><strong>Conformal RAG</strong> · FDR Monitoring</h1>
+  <div class="top-right">
+    <span class="status">All systems nominal</span>
+    <span class="version">v0.1.0 · dev</span>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-label">Empirical FDR (7-day rolling)</div>
+  <div class="hero-row">
+    <div class="hero-number">0.83<small>%</small></div>
+    <div style="margin-bottom:6px;">
+      <div style="font-family:var(--mono);font-size:1rem;color:var(--muted);">α = 5.00<small style="font-size:0.7rem;color:var(--muted);">%</small></div>
+      <div style="font-size:0.78rem;color:var(--muted);margin-top:2px;">Target bound <span style="color:var(--text);">not exceeded</span></div>
+    </div>
+  </div>
+  <div class="hero-meta">
+    <div><span style="font-family:var(--mono);color:var(--accent);">12,847</span> <span style="font-size:0.72rem;color:var(--muted);">predictions</span></div>
+    <div><span style="font-family:var(--mono);color:var(--amber);">12.3</span><span style="font-size:0.72rem;color:var(--muted);">%</span> <span style="font-size:0.72rem;color:var(--muted);">abstained</span></div>
+    <div><span style="font-family:var(--mono);color:var(--text);">4</span> <span style="font-size:0.72rem;color:var(--muted);">domains</span></div>
+    <div><span style="font-family:var(--mono);color:var(--text);">161</span> <span style="font-size:0.72rem;color:var(--muted);">tests passing</span></div>
+  </div>
+</div>
+
+<div class="metric-grid">
+  <div class="metric-cell">
+    <div class="label">Calibration samples</div>
+    <div class="value">1,247</div>
+    <div class="note">+83 this week</div>
+  </div>
+  <div class="metric-cell">
+    <div class="label">LLM judge usage</div>
+    <div class="value" style="color:var(--amber);">0.0%</div>
+    <div class="note">NLI-only mode</div>
+  </div>
+  <div class="metric-cell">
+    <div class="label">Avg latency (p50)</div>
+    <div class="value">5.0s</div>
+    <div class="note">NLI scoring on CPU</div>
+  </div>
+  <div class="metric-cell">
+    <div class="label">Cost per query</div>
+    <div class="value" style="color:var(--accent);">$0.00</div>
+    <div class="note">No LLM API calls</div>
+  </div>
+</div>
+
+<div class="charts-row">
+  <div class="chart-panel">
+    <h3>FDR over time</h3>
+    <svg viewBox="0 0 600 180" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="area2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.15"/>
+          <stop offset="100%" stop-color="#10b981" stop-opacity="0.01"/>
+        </linearGradient>
+      </defs>
+      <line x1="40" y1="40" x2="580" y2="40" stroke="#2a2a2a" stroke-width="0.5"/>
+      <line x1="40" y1="73" x2="580" y2="73" stroke="#2a2a2a" stroke-width="0.5"/>
+      <line x1="40" y1="106" x2="580" y2="106" stroke="#2a2a2a" stroke-width="0.5"/>
+      <line x1="40" y1="139" x2="580" y2="139" stroke="#2a2a2a" stroke-width="0.5"/>
+      <line x1="40" y1="49" x2="580" y2="49" stroke="#ef4444" stroke-width="1" stroke-dasharray="6,4" opacity="0.35"/>
+      <text x="582" y="53" fill="#787878" font-size="9" font-family="system-ui">α = 5%</text>
+      <polygon points="40,160 60,110 80,100 100,95 120,105 140,85 160,90 180,75 200,80 220,65 240,70 260,60 280,65 300,55 320,60 340,50 360,55 380,48 400,52 420,58 440,62 460,55 480,50 500,48 520,45 540,42 560,46 580,50 580,160 40,160" fill="url(#area2)"/>
+      <polyline points="60,110 80,100 100,95 120,105 140,85 160,90 180,75 200,80 220,65 240,70 260,60 280,65 300,55 320,60 340,50 360,55 380,48 400,52 420,58 440,62 460,55 480,50 500,48 520,45 540,42 560,46 580,50" fill="none" stroke="#10b981" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="540" cy="42" r="2.5" fill="#10b981"/>
+      <text x="40" y="14" fill="#787878" font-size="8" font-family="system-ui">FDR %</text>
+      <text x="40" y="173" fill="#787878" font-size="8" font-family="system-ui">Jun 7</text>
+      <text x="290" y="173" fill="#787878" font-size="8" font-family="system-ui">Jun 21</text>
+      <text x="540" y="173" fill="#787878" font-size="8" font-family="system-ui">Jul 7</text>
+      <text x="36" y="44" fill="#787878" font-size="7" font-family="system-ui" text-anchor="end">8%</text>
+      <text x="36" y="77" fill="#787878" font-size="7" font-family="system-ui" text-anchor="end">4%</text>
+      <text x="36" y="110" fill="#787878" font-size="7" font-family="system-ui" text-anchor="end">0%</text>
+    </svg>
+  </div>
+  <div class="chart-panel">
+    <h3>Per-domain FDR</h3>
+    <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+      <line x1="50" y1="45" x2="280" y2="45" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,3" opacity="0.25"/>
+      <text x="272" y="44" fill="#787878" font-size="7" font-family="system-ui">α</text>
+      <rect x="65" y="55" width="36" height="105" rx="2" fill="#10b981" opacity="0.85"/>
+      <text x="83" y="50" fill="#e8e8e8" font-size="9" font-family="ui-monospace" text-anchor="middle" font-weight="500">1.2</text>
+      <rect x="125" y="72" width="36" height="88" rx="2" fill="#10b981" opacity="0.65"/>
+      <text x="143" y="67" fill="#e8e8e8" font-size="9" font-family="ui-monospace" text-anchor="middle" font-weight="500">0.8</text>
+      <rect x="185" y="100" width="36" height="60" rx="2" fill="#f59e0b" opacity="0.6"/>
+      <text x="203" y="95" fill="#e8e8e8" font-size="9" font-family="ui-monospace" text-anchor="middle" font-weight="500">0.3</text>
+      <rect x="245" y="115" width="36" height="45" rx="2" fill="#10b981" opacity="0.5"/>
+      <text x="263" y="110" fill="#e8e8e8" font-size="9" font-family="ui-monospace" text-anchor="middle" font-weight="500">0.1</text>
+      <text x="83" y="172" fill="#787878" font-size="8" font-family="system-ui" text-anchor="middle">General</text>
+      <text x="143" y="172" fill="#787878" font-size="8" font-family="system-ui" text-anchor="middle">Tech</text>
+      <text x="203" y="172" fill="#787878" font-size="8" font-family="system-ui" text-anchor="middle">Finance</text>
+      <text x="263" y="172" fill="#787878" font-size="8" font-family="system-ui" text-anchor="middle">Medical</text>
+      <line x1="50" y1="160" x2="280" y2="160" stroke="#2a2a2a" stroke-width="1"/>
+    </svg>
+  </div>
+</div>
+
+<div class="section-title">Benchmark Results</div>
+<div class="bench-grid">
+  <div class="bench-card">
+    <div class="bench-name">HotpotQA</div>
+    <div class="bench-meta">30 samples · adversarial injection</div>
+    <div class="bench-result pass">FDR 0.00%</div>
+    <div class="bench-detail">α = 5% · PASS</div>
+  </div>
+  <div class="bench-card">
+    <div class="bench-name">RAGTruth</div>
+    <div class="bench-meta">10 samples · native hallucinations</div>
+    <div class="bench-result pass">FDR 0.00%</div>
+    <div class="bench-detail">α = 5% · coverage 0% (NLI only)</div>
+  </div>
+  <div class="bench-card">
+    <div class="bench-name">FinanceBench</div>
+    <div class="bench-meta">Financial document QA</div>
+    <div class="bench-result pending">Pending</div>
+    <div class="bench-detail">Needs LLM judge</div>
+  </div>
+  <div class="bench-card">
+    <div class="bench-name">HaluEval</div>
+    <div class="bench-meta">RLHF hallucination pairs</div>
+    <div class="bench-result pending">Pending</div>
+    <div class="bench-detail">Needs LLM judge</div>
+  </div>
+  <div class="bench-card">
+    <div class="bench-name">MultiHop-RAG</div>
+    <div class="bench-meta">Multi-document reasoning</div>
+    <div class="bench-result pending">Pending</div>
+    <div class="bench-detail">Needs LLM judge</div>
+  </div>
+  <div class="bench-card">
+    <div class="bench-name">Unit Tests</div>
+    <div class="bench-meta">Core + benchmark suite</div>
+    <div class="bench-result pass">161 / 161</div>
+    <div class="bench-detail">All passing</div>
+  </div>
+</div>
+
+<div class="section-title">Recent Predictions</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Query</th><th>Domain</th><th>Risk Score</th><th>Latency</th><th>Verdict</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="query">What is the P/E ratio of Apple Inc. for Q2 2026?</td><td>finance</td><td class="risk-low">0.008</td><td>1.2s</td><td><span class="verdict safe">Pass</span></td></tr>
+      <tr><td class="query">Explain the mechanism of quantum entanglement in layman's terms</td><td>general</td><td class="risk-mid">0.042</td><td>3.8s</td><td><span class="verdict safe">Pass</span></td></tr>
+      <tr><td class="query">What is the recommended ibuprofen dosage for a 6-year-old child?</td><td>medical</td><td class="risk-high">0.092</td><td>4.1s</td><td><span class="verdict abstain">Abstained</span></td></tr>
+      <tr><td class="query">Compare React Server Components vs traditional SSR in Next.js 16</td><td>tech</td><td class="risk-low">0.015</td><td>1.5s</td><td><span class="verdict safe">Pass</span></td></tr>
+      <tr><td class="query">What was Tesla's automotive gross margin in Q1 2026?</td><td>finance</td><td class="risk-low">0.011</td><td>2.0s</td><td><span class="verdict safe">Pass</span></td></tr>
+      <tr><td class="query">List all countries that border the Mediterranean Sea</td><td>general</td><td class="risk-mid">0.037</td><td>2.7s</td><td><span class="verdict safe">Pass</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<hr>
+
+<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;">
+  <span style="font-size:0.72rem;color:var(--muted);">Apache 2.0 · conformal-rag v0.1.0</span>
+  <span style="font-size:0.72rem;color:var(--muted);">Data as of 2026-07-07</span>
+</div>
+
+</body>
+</html>

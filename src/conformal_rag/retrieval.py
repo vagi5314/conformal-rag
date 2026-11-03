@@ -120,11 +120,11 @@ class HybridRetriever:
             # Precompute dense embeddings once; queries then only encode themselves.
             self._doc_embeddings = self._encode_passages(self._documents)
 
-    def retrieve(self, query: str) -> List[str]:
+    def retrieve(self, query: str, k: Optional[int] = None) -> List[str]:
         dense_results = self._dense_search(query)
         sparse_results = self._sparse_search(query)
         fused = reciprocal_rank_fusion([dense_results, sparse_results])
-        return fused[: self.final_k]
+        return fused[: k or self.final_k]
 
     def _dense_search(self, query: str) -> List[str]:
         if self._client:

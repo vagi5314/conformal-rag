@@ -15,7 +15,7 @@ Current RAG systems use heuristic thresholds for confidence. No production tool 
 | Guarantee type | Heuristic thresholds | E[P(approved ∧ wrong)] ≤ α (Bates et al. 2021) |
 | Scoring | Embeddings or basic NLI | Hybrid NLI + LLM judge |
 | Calibration | Static | Online adaptive (handles drift) |
-| Domain support | Global threshold | Per-domain (finance α=0.01, medical α=0.001) |
+| Domain support | Global threshold | Per-domain (demo set: medicine α=0.05, finance and general α=0.15) |
 | LLM routing | Single provider | Multi-provider with fallbacks |
 
 ## Quick Start
@@ -50,13 +50,35 @@ print(result.risk_bound)     # 0.05 (guaranteed FDR)
 
 ### Web UI
 
+One command seeds the demo corpus, starts the API, and opens the console:
+
+```bat
+run.cmd
+```
+
+It opens at http://127.0.0.1:8000. To start the server without the demo state:
+
 ```bash
 set PYTHONPATH=src
 uvicorn conformal_rag.api:create_app --factory --port 8000
-# Opens at http://localhost:8000
 ```
 
-A dependency-free vanilla JS frontend ("Ember Console" — warm charcoal, ember/sage accents, Bricolage Grotesque + Space Mono) is served by the same FastAPI process (no CORS, no build step). Four views: **Check an Answer** (setup + sources + risk verdict with a semicircular support dial), **Teach It** (calibration/labeling), **Live Status** (report card, FDR/coverage/threshold charts, feedback), **Topics** (per-domain registration, calibration, drift).
+A dependency-free vanilla JS frontend (Geist and Geist Mono, no build step, no CORS) is served by the same FastAPI process. Four views: **Check** (a question, a source passage and an answer in, a verdict out, with the threshold and the routed topic), **Topics** (one tolerance, threshold and calibration set per topic, plus the sample count each tolerance needs), **Status** (the two honest rates, the calibration score separation, drift per topic) and **Method** (what the bound does and does not claim). Calibration and demo data are pre-seeded, so the console works on the first load.
+
+The Check view has two modes:
+
+- **Paste an answer** — the original flow. Paste a source passage and an answer, pick the tolerance, and the engine returns the verdict against that topic's calibrated threshold.
+- **Upload a document** — drop a PDF or text file (up to 10 MB), type a question, and the server retrieves passages from *that* document only, writes the answer, and checks it. Uploads are scored against the `general` calibration unless the request names another topic, because an uploaded document sits outside the demo calibration set and centroid routing would stamp it with a topic from the demo corpus. If the model finds no answer, the response still carries the closest passage so the page says what the document does cover instead of nothing.
+
+```bash
+# Upload a document, then ask it a question
+curl -X POST http://localhost:8000/documents/upload -F "file=@paper.pdf"
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"doc_id": "<id from the upload>", "query": "What is the coverage gap?"}'
+```
+
+Without a provider key the answer is quoted straight from the document and marked grounded by containment; with a key the model writes it and the NLI + judge pipeline scores it.
 
 ## How It Works
 
@@ -65,8 +87,9 @@ Query + Retrieved Context + LLM Response
               │
               ▼
     ┌─────────────────────┐
-    │  NLI Fast Path      │  (~1s, free)
-    │  DeBERTa-v3-large   │  Catches 70% of clear cases
+    │  NLI Fast Path      │  (~0.4s, free)
+    │  nli-deberta-v3-    │  Catches clear cases
+    │  small (default)    │
     └──────────┬──────────┘
                │ confidence < 0.7?
                ▼ (30% of cases)
@@ -101,12 +124,24 @@ Query + Retrieved Context + LLM Response
 
 | Component | What It Does | Library |
 |-----------|-------------|---------|
-| **NLI Scorer** | Claim-level faithfulness scoring | DeBERTa-v3-large MNLI |
+| **NLI Scorer** | Claim-level faithfulness scoring | `cross-encoder/nli-deberta-v3-small` (default) |
 | **LLM Judge** | Deterministic faithfulness verification | LiteLLM (multi-provider) |
 | **CRC Engine** | FDR control via conformal prediction | Hand-rolled CRC (Bates et al. 2021) |
 | **Online Adaptive** | Handles distribution shift | ACI algorithm |
 | **Hybrid Retrieval** | Dense + sparse with RRF | Sentence Transformers + BM25 |
 | **Per-Domain Calibration** | Different α per domain | Custom |
+
+### How a claim is scored
+
+The response is split into claims, and each claim is checked against the
+context **one sentence at a time and against overlapping three-sentence
+windows**, keeping the best match. That is not a detail: the small
+cross-encoder is only reliable on a local premise. Measured on a real
+document, the same faithful claim scored 0.99 against its three-sentence
+paragraph and 0.005 against the whole document, while an unrelated claim
+reached 0.02 against the whole document — wrong in both directions, including
+a false approval. Single sentences catch verbatim restatements; the windows
+keep the context that resolves pronouns.
 
 ## Per-Domain Calibration
 
@@ -130,7 +165,7 @@ result = rag.check("What is the P/E ratio of Apple?", response="28.5")
 
 ## Real-Time Performance
 
-Tested on CPU (no GPU required), DeBERTa-v3-large NLI:
+Tested on CPU (no GPU required), `cross-encoder/nli-deberta-v3-small` (the default):
 
 | Component | First Call | Subsequent |
 |-----------|-----------|------------|
@@ -193,6 +228,12 @@ curl -X POST http://localhost:8000/calibrate \
 
 # Health check
 curl http://localhost:8000/health
+
+# Upload a document and ask it a question
+curl -X POST http://localhost:8000/documents/upload -F "file=@paper.pdf"
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"doc_id": "<id>", "query": "What is the coverage gap?"}'
 ```
 
 ### Production Configuration
@@ -208,6 +249,9 @@ runs exactly as before (no auth, in-memory state):
 | `CONFORMAL_RAG_STATE_DIR` | Directory for persisting calibration, document index, and domain state as JSON; restored at startup |
 | `CONFORMAL_RAG_LOG_LEVEL` | Package log level (default `INFO`) |
 | `CONFORMAL_RAG_ALPHA` | Default α (clamped to [0.001, 0.2]) |
+| `CONFORMAL_RAG_NLI_MODEL` | NLI model preset: `small` (default) or `large` |
+| `CONFORMAL_RAG_LLM_MODELS` | Comma-separated override for the LLM judge fallback chain (default: `groq/qwen/qwen3.8-27b`, `groq/openai/gpt-oss-120b`). Groq's Llama models are retired on the current key. |
+| `CONFORMAL_RAG_USE_LLM_JUDGE` | `1` (default) or `0` to disable the paid judge and use NLI only |
 
 ```bash
 # Example: hardened deploy
@@ -247,8 +291,11 @@ conformal-rag/
 │   ├── models.py            # Pydantic schemas
 │   ├── config.py            # Configuration
 │   ├── api.py               # FastAPI endpoints
-│   └── client.py            # Python client SDK
-├── tests/                   # 192 core tests (all passing)
+│   ├── client.py            # Python client SDK
+│   ├── documents.py         # PDF/text extraction, chunking, answer drafting
+│   └── demo_corpus.py       # Seeded demo passages
+├── sample_docs/             # Two sample PDFs + verified question list for the upload flow
+├── tests/                   # 307 core tests (307 passing, 10 skipped)
 ├── benchmarks/              # Evaluation scripts
 │   ├── runner.py            # Multi-benchmark CLI runner
 │   ├── _common.py           # Shared helpers (scoring, injection, aggregation)
@@ -263,9 +310,11 @@ conformal-rag/
 │   ├── paper/draft.md       # Paper draft (v0.2)
 │   └── superpowers/         # Design specs, plans
 ├── frontend/                # Vanilla JS web UI (served by FastAPI)
-│   ├── index.html           # Check an Answer / Teach It / Live Status / Topics
-│   ├── css/styles.css       # Ember Console theme (charcoal + ember/sage)
-│   └── js/                  # api client, app logic, labeled SVG charts
+│   ├── index.html           # Check (paste + upload) / Topics / Status / Method
+│   ├── css/styles.css       # Geist type scale, dark surfaces, motion tokens
+│   └── js/                  # api client, view logic, SVG calibration chart
+├── archive/                 # Superseded files (quickstart.py, first review deck)
+├── scripts/seed_demo.py     # Writes the demo index + per-domain calibrations
 ├── pyproject.toml           # Package config
 ├── Dockerfile               # Container config
 ├── docker-compose.yml       # Local services
@@ -322,7 +371,7 @@ uvicorn conformal_rag.api:create_app --factory --reload --port 8000
 - [ ] Open source launch (after arXiv)
 
 ### Phase 5: Elevation
-- [x] Web UI (Ember Console: Check an Answer / Teach It / Live Status / Topics, served by FastAPI)
+- [x] Web UI (Check / Topics / Status / Method, pre-seeded demo, served by FastAPI)
 - [x] Research findings documented (RESEARCH.md updated)
 - [ ] HuggingFace Spaces deployment (public shareable URL)
 - [ ] Chrome extension (highlight text → conformal verdict)

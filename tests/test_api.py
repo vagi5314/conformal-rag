@@ -325,3 +325,114 @@ class TestDomainEndpoints:
         assert response.json()["status"] == "recorded"
         monitor = app.state.domain_manager.monitors["general"]
         assert monitor.get_metrics()["total_predictions"] == 1
+        assert "approved_wrong_rate" in monitor.get_metrics()
+
+
+class TestDomainScopedConfig:
+    DATA = [
+        {"query": "q1", "context": "c1", "response": "r1", "label": 0},
+        {"query": "q2", "context": "c2", "response": "r2", "label": 1},
+    ]
+
+    async def _calibrate(self, app, client, name):
+        await client.post("/domains", json={"name": name, "alpha": 0.05})
+        engine = app.state.domain_manager.domains[name]
+        with patch.object(engine.scoring, "score", return_value=_breakdown(0.8)):
+            await client.post(f"/domains/{name}/calibrate", json={"data": self.DATA})
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_moves_only_the_named_domain(self, app, client):
+        medicine = await self._calibrate(app, client, "medicine")
+        finance = await self._calibrate(app, client, "finance")
+        finance_threshold = finance._threshold
+
+        response = await client.post("/config", json={"alpha": 0.2, "domain": "medicine"})
+        assert response.status_code == 200
+        assert response.json()["alpha"] == 0.2
+
+        assert medicine.alpha == 0.2
+        assert medicine._threshold != finance_threshold or finance.alpha == 0.05
+        assert finance.alpha == 0.05
+        assert finance._threshold == finance_threshold
+        assert app.state.domain_manager.monitors["medicine"].alpha == 0.2
+        assert app.state.domain_manager.monitors["finance"].alpha == 0.05
+
+    @pytest.mark.asyncio
+    async def test_rejects_unknown_domain(self, client):
+        response = await client.post("/config", json={"alpha": 0.1, "domain": "nope"})
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_rejects_uncalibrated_domain(self, client):
+        await client.post("/domains", json={"name": "legal", "alpha": 0.05})
+        response = await client.post("/config", json={"alpha": 0.1, "domain": "legal"})
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_domains_listing_reports_samples_needed(self, app, client):
+        await self._calibrate(app, client, "finance")
+        body = (await client.get("/domains")).json()
+        finance = next(d for d in body["domains"] if d["name"] == "finance")
+        assert finance["n_samples"] == 2
+        assert finance["min_samples_required"] == 19
+        assert finance["certifiable"] is False
+
+
+class TestCalibrationScoresEndpoint:
+    DATA = [
+        {"query": "q1", "context": "c1", "response": "r1", "label": 0},
+        {"query": "q2", "context": "c2", "response": "r2", "label": 1},
+    ]
+
+    @pytest.mark.asyncio
+    async def test_returns_points_with_labels(self, app, client):
+        response = await client.get("/calibration/scores")
+        assert response.json()["calibrated"] is False
+
+        with patch.object(app.state.engine.scoring, "score", return_value=_breakdown(0.7)):
+            await client.post("/calibrate", json={"data": self.DATA})
+
+        body = (await client.get("/calibration/scores")).json()
+        assert body["calibrated"] is True
+        assert len(body["points"]) == 2
+        assert {p["label"] for p in body["points"]} == {0, 1}
+        assert all(0.0 <= p["score"] <= 1.0 for p in body["points"])
+        assert body["threshold"] == app.state.engine._threshold
+
+    @pytest.mark.asyncio
+    async def test_domain_scores_match_that_domain(self, app, client):
+        dm = app.state.domain_manager
+        await client.post("/domains", json={"name": "finance", "alpha": 0.05})
+        engine = dm.domains["finance"]
+        with patch.object(engine.scoring, "score", return_value=_breakdown(0.6)), patch.object(
+            engine.scoring, "score_batch", side_effect=lambda q, c, r: [_breakdown(0.6) for _ in q]
+        ):
+            await client.post("/domains/finance/calibrate", json={"data": self.DATA})
+
+        body = (await client.get("/calibration/scores?domain=finance")).json()
+        assert body["domain"] == "finance"
+        assert len(body["points"]) == 2
+        assert all(abs(p["score"] - 0.6) < 1e-9 for p in body["points"])
+
+
+class TestPredictReportsItsThreshold:
+    DATA = [
+        {"query": "q1", "context": "c1", "response": "r1", "label": 0},
+        {"query": "q2", "context": "c2", "response": "r2", "label": 1},
+    ]
+
+    @pytest.mark.asyncio
+    async def test_result_carries_threshold_and_alpha(self, app, client):
+        """The verdict must come with the exact cut that produced it."""
+        with patch.object(app.state.engine.scoring, "score", return_value=_breakdown(0.9)):
+            await client.post("/calibrate", json={"data": self.DATA})
+            response = await client.post(
+                "/predict", json={"query": "q", "context": ["c"], "response": "r"}
+            )
+        body = response.json()
+        engine = app.state.engine
+        assert body["threshold"] == engine._threshold
+        assert body["alpha"] == engine.alpha
+        assert body["calibrated"] is True
+        assert body["abstained"] is (body["risk_score"] <= body["threshold"])

@@ -1,545 +1,1083 @@
-/* app.js — view routing, state, and plain-language rendering */
+/* Conformal RAG console.
+   Reads the REST API and paints four views: Check, Topics, Status, Method.
+   No framework, no build step. */
 
-(() => {
-  "use strict";
+const HTML_NS = "http://www.w3.org/2000/svg";
+const ALPHA_CHOICES = [0.2, 0.15, 0.1, 0.05];
+const MIN_SAMPLES = [
+  { alpha: 0.2, n: 4 },
+  { alpha: 0.15, n: 6 },
+  { alpha: 0.1, n: 9 },
+  { alpha: 0.05, n: 19 },
+  { alpha: 0.01, n: 99 },
+];
+const TOPIC_BLURB = {
+  general: "Everyday questions with no domain specific risk.",
+  medicine: "Dosing, symptoms and treatment, where a wrong answer costs the most.",
+  finance: "Definitions and ratios, where an error is usually recoverable.",
+};
 
-  const $ = (id) => document.getElementById(id);
+const state = {
+  config: null,
+  calibration: null,
+  domains: [],
+  demo: null,
+  metrics: null,
+  activeTopic: null,
+  activeKind: null,
+  chartTopic: "general",
+  toleranceTopic: "general",
+  doc: null,
+  busy: false,
+};
 
-  // ---------- helpers ----------
+/* ------------------------------------------------------------- helpers */
 
-  let toastTimer = null;
-  function toast(message, kind = "") {
-    const el = $("toast");
-    el.textContent = message;
-    el.className = `toast ${kind}`;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.add("hidden"), 3500);
-  }
+const $ = (id) => document.getElementById(id);
 
-  const pct = (x, d = 1) => `${(x * 100).toFixed(d)}%`;
-  const pct0 = (x) => `${(x * 100).toFixed(0)}%`;
+function el(tag, attrs = {}, text) {
+  const node = document.createElement(tag);
+  Object.entries(attrs).forEach(([k, v]) => {
+    if (v !== null && v !== undefined) node.setAttribute(k, v);
+  });
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
 
-  function busy(btn, on, label) {
+function svgEl(tag, attrs = {}, text) {
+  const node = document.createElementNS(HTML_NS, tag);
+  Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+const score = (x) => Number(x).toFixed(4);
+const alpha = (x) => Number(x).toFixed(2);
+const pct = (x) => `${(Number(x) * 100).toFixed(1)}%`;
+const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function clamp01(x) {
+  return Math.min(1, Math.max(0, Number(x)));
+}
+
+function useIcon(node, name) {
+  node.replaceChildren(svgEl("use", { href: `#i-${name}` }));
+  return node;
+}
+
+function showError(node, message) {
+  node.textContent = message;
+  node.hidden = false;
+}
+
+/* ----------------------------------------------------------- boot / nav */
+
+const VIEW_IDS = ["check", "topics", "status", "method"];
+
+function activate(id, focus) {
+  VIEW_IDS.forEach((name) => {
+    const view = $(`view-${name}`);
+    const tab = $(`tab-${name}`);
+    const on = name === id;
+    view.hidden = !on;
     if (on) {
-      btn.dataset.origLabel = btn.textContent;
-      btn.textContent = label || "Working\u2026";
-      btn.disabled = true;
-    } else {
-      btn.textContent = btn.dataset.origLabel || btn.textContent;
-      btn.disabled = false;
+      view.classList.remove("is-entering");
+      void view.offsetWidth;
+      view.classList.add("is-entering");
     }
-  }
-
-  function strictness(alpha) {
-    if (alpha <= 0.005) return "Very strict";
-    if (alpha <= 0.02) return "Strict";
-    if (alpha <= 0.05) return "Standard";
-    return "Relaxed";
-  }
-
-  // ---------- view routing ----------
-
-  const viewHooks = {};
-  let statusTimer = null;
-
-  function switchView(name) {
-    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-    document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
-    $(`view-${name}`).classList.add("active");
-    document.querySelector(`.nav-btn[data-view="${name}"]`).classList.add("active");
-    if (name !== "status") clearInterval(statusTimer);
-    if (viewHooks[name]) viewHooks[name]();
-  }
-
-  $("nav").addEventListener("click", (e) => {
-    const btn = e.target.closest(".nav-btn");
-    if (btn) switchView(btn.dataset.view);
+    tab.classList.toggle("is-active", on);
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
   });
+  if (focus) $(`view-${id}`).focus({ preventScroll: true });
+  if (id === "status") loadStatus();
+  if (id === "topics") loadDomains();
+}
 
-  // ---------- check an answer ----------
-
-  let docCount = 0;
-  let currentAlpha = 0.05;
-
-  async function refreshEngineStatus() {
-    try {
-      const cfg = await API.getConfig();
-      currentAlpha = cfg.alpha;
-      $("alpha-slider").value = cfg.alpha;
-      $("alpha-value").textContent = pct(cfg.alpha);
-      $("online-toggle").checked = cfg.online;
-      docCount = cfg.documents;
-      $("index-status").textContent =
-        docCount > 0 ? `${docCount} sources saved` : "no sources saved yet";
-      const taught = cfg.calibrated
-        ? "taught"
-        : "NOT taught yet \u2014 verdicts use a default line, no guarantee";
-      $("engine-status").textContent =
-        `Tolerance ${pct(cfg.alpha)} \u00b7 auto-adjust ${cfg.online ? "on" : "off"} \u00b7 ${taught}`;
-      $("engine-status").className = `status-line ${cfg.calibrated ? "ok" : "err"}`;
-    } catch (err) {
-      $("engine-status").textContent = `Can't reach the server: ${err.message}`;
-      $("engine-status").className = "status-line err";
-    }
-  }
-
-  $("alpha-slider").addEventListener("input", (e) => {
-    $("alpha-value").textContent = pct(parseFloat(e.target.value));
-  });
-
-  $("init-btn").addEventListener("click", async () => {
-    const btn = $("init-btn");
-    busy(btn, true, "Applying\u2026");
-    try {
-      const alpha = parseFloat($("alpha-slider").value);
-      const online = $("online-toggle").checked;
-      const cfg = await API.setConfig(alpha, online);
-      currentAlpha = cfg.alpha;
-      $("engine-status").textContent =
-        `Tolerance ${pct(cfg.alpha)} \u00b7 auto-adjust ${cfg.online ? "on" : "off"} \u00b7 ready`;
-      $("engine-status").className = "status-line ok";
-      toast(`Settings applied: ${pct(cfg.alpha)} tolerance, auto-adjust ${cfg.online ? "on" : "off"}`, "ok");
-    } catch (err) {
-      toast(`Couldn't apply settings: ${err.message}`, "err");
-    } finally {
-      busy(btn, false);
-    }
-  });
-
-  $("load-samples-btn").addEventListener("click", async () => {
-    try {
-      const { documents } = await API.samples();
-      $("docs-input").value = documents.join("\n");
-      toast(`${documents.length} example sources loaded \u2014 press "Save sources"`, "ok");
-    } catch (err) {
-      toast(`Couldn't load examples: ${err.message}`, "err");
-    }
-  });
-
-  $("index-btn").addEventListener("click", async () => {
-    const btn = $("index-btn");
-    const lines = $("docs-input").value.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) { toast("Nothing to save \u2014 add some sources first", "err"); return; }
-    busy(btn, true, "Saving\u2026");
-    try {
-      const { indexed } = await API.index(lines);
-      docCount = indexed;
-      $("index-status").textContent = `${indexed} sources saved`;
-      toast(`Saved ${indexed} sources`, "ok");
-    } catch (err) {
-      toast(`Couldn't save sources: ${err.message}`, "err");
-    } finally {
-      busy(btn, false);
-    }
-  });
-
-  async function currentThreshold() {
-    try {
-      const cal = await API.calibration();
-      if (cal.calibrated) return cal.threshold;
-      const online = await API.online();
-      if (online.enabled) return online.threshold;
-    } catch (_) { /* fall through */ }
-    return 0.5;
-  }
-
-  function renderVerdict(result, threshold) {
-    const verdict = $("verdict-card");
-    const score = result.risk_score;
-
-    if (result.abstained) {
-      verdict.className = "verdict abstained";
-      verdict.innerHTML =
-        `<div class="verdict-word">\u2717 Not sure</div>` +
-        `<div class="verdict-detail">We can't confirm this answer is supported by the sources ` +
-        `(only ${pct(score)} support). To keep its promise, the system would rather refuse than guess. ` +
-        `Better not to use this answer.</div>`;
-    } else {
-      verdict.className = "verdict accepted";
-      verdict.innerHTML =
-        `<div class="verdict-word">\u2713 Trustworthy</div>` +
-        `<div class="verdict-detail">This answer is supported by the sources ` +
-        `(${pct(score)} support). Under your ${pct(result.risk_bound)} tolerance, ` +
-        `across many answers at most ${pct(result.risk_bound)} of the ones we approve ` +
-        `will be wrong. We do not promise anything about this single answer.</div>`;
-    }
-    if (!result.calibrated) {
-      verdict.innerHTML +=
-        `<div class="verdict-detail" style="margin-top:10px;color:var(--ember)">` +
-        `\u26a0 Not taught yet \u2014 this verdict uses a rough default line and carries ` +
-        `no statistical guarantee. Visit \u201cTeach It\u201d to make the promise real.</div>`;
-    }
-
-    // dial: score is "how supported" — higher is better
-    const ARC = 257.6; // semicircle arc length, r = 82
-    $("dial-block").className = `dial-wrap ${result.abstained ? "bad" : "good"}`;
-    $("dial-arc").style.strokeDashoffset = `${ARC * (1 - Math.max(0.01, score))}`;
-    $("dial-value").textContent = pct(score);
-    // threshold tick on the semicircle: 0 = left end, 1 = right end
-    const a = Math.PI * threshold;
-    const tick = $("dial-tick");
-    tick.setAttribute("x1", (100 - 72 * Math.cos(a)).toFixed(1));
-    tick.setAttribute("y1", (108 - 72 * Math.sin(a)).toFixed(1));
-    tick.setAttribute("x2", (100 - 92 * Math.cos(a)).toFixed(1));
-    tick.setAttribute("y2", (108 - 92 * Math.sin(a)).toFixed(1));
-    $("dial-caption").textContent =
-      `The arc shows how strongly the sources support the answer. ` +
-      `The tick (${pct(threshold)}) is where the system draws the line: ` +
-      `below it means "not sure".`;
-
-    // how we decided — plain language
-    const b = result.scoring_breakdown;
-    const lines = [];
-    lines.push(`<span class="k">fast checker:</span> <span class="v">found ${pct(b.nli_score)} support in the sources</span>`);
-    if (b.used_llm_judge && b.llm_judge_score != null) {
-      lines.push(`<span class="k">careful judge:</span> <span class="v">the fast checker wasn't confident, so we double-checked \u2014 it found ${pct(b.llm_judge_score)} support</span>`);
-    } else {
-      lines.push(`<span class="k">careful judge:</span> <span class="v">not needed \u2014 the fast checker was confident</span>`);
-    }
-    lines.push(`<span class="k">final verdict:</span> <span class="v ${result.abstained ? "bad" : "good"}">${pct(b.final_score)} supported</span>`);
-    const ci = result.confidence_interval;
-    lines.push(`<span class="k">statistical floor:</span> <span class="v">we're confident support is at least ${pct(ci[0])}</span>`);
-    lines.push(`<span class="k">time taken:</span> <span class="v">${(result.latency_ms / 1000).toFixed(1)}s</span>`);
-    $("how-decided").innerHTML =
-      `<div style="font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px">how we decided</div>` +
-      lines.join("<br />");
-  }
-
-  $("predict-btn").addEventListener("click", async () => {
-    const btn = $("predict-btn");
-    const query = $("query-input").value.trim();
-    const response = $("response-input").value.trim();
-    if (!query) { toast("Add the question first", "err"); return; }
-    if (!response) { toast("Paste the AI's answer so we can check it", "err"); return; }
-
-    busy(btn, true, "Checking\u2026 (first check loads the model)");
-    try {
-      let context = $("context-input").value.split("\n").map((l) => l.trim()).filter(Boolean);
-
-      if ($("auto-retrieve").checked && docCount > 0 && !context.length) {
-        const { results } = await API.retrieve(query, 5);
-        if (results.length) context = results;
+function bindNav() {
+  const tabs = VIEW_IDS.map((id) => $(`tab-${id}`));
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => activate(tab.dataset.view, false));
+    tab.addEventListener("keydown", (event) => {
+      const i = tabs.indexOf(tab);
+      let next = null;
+      if (event.key === "ArrowRight") next = tabs[(i + 1) % tabs.length];
+      if (event.key === "ArrowLeft") next = tabs[(i - 1 + tabs.length) % tabs.length];
+      if (event.key === "Home") next = tabs[0];
+      if (event.key === "End") next = tabs[tabs.length - 1];
+      if (next) {
+        event.preventDefault();
+        next.focus();
+        activate(next.dataset.view, false);
       }
-
-      const [result, threshold] = await Promise.all([
-        API.predict(query, context, response),
-        currentThreshold(),
-      ]);
-
-      renderVerdict(result, threshold);
-      $("predict-result").classList.remove("hidden");
-    } catch (err) {
-      toast(`Check failed: ${err.message}`, "err");
-    } finally {
-      busy(btn, false);
-    }
-  });
-
-  // ---------- teach it ----------
-
-  const EXAMPLE = {
-    queries: [
-      "What is the capital of France?",
-      "What is the capital of France?",
-      "Who created Python?",
-      "Who created Python?",
-      "What is conformal prediction?",
-    ],
-    contexts: [
-      "The capital of France is Paris.",
-      "The capital of France is Paris.",
-      "Python was created by Guido van Rossum in 1991.",
-      "Python was created by Guido van Rossum in 1991.",
-      "Conformal prediction gives distribution-free coverage guarantees.",
-    ],
-    responses: [
-      "The capital of France is Paris.",
-      "The capital of France is Lyon.",
-      "Python was created by Guido van Rossum.",
-      "Python was created by Google in 2020.",
-      "It is a framework with guaranteed coverage.",
-    ],
-    labels: ["0", "1", "0", "1", "0"],
-  };
-
-  $("fill-example-btn").addEventListener("click", () => {
-    $("cal-queries").value = EXAMPLE.queries.join("\n");
-    $("cal-contexts").value = EXAMPLE.contexts.join("\n");
-    $("cal-responses").value = EXAMPLE.responses.join("\n");
-    $("cal-labels").value = EXAMPLE.labels.join("\n");
-    toast("Worked example loaded \u2014 press \u201cTeach it\u201d", "ok");
-  });
-
-  function parseLines(id) {
-    return $(id).value.split("\n").map((l) => l.trim()).filter(Boolean);
-  }
-
-  $("calibrate-btn").addEventListener("click", async () => {
-    const btn = $("calibrate-btn");
-    const queries = parseLines("cal-queries");
-    const contexts = parseLines("cal-contexts");
-    const responses = parseLines("cal-responses");
-    const labels = parseLines("cal-labels");
-
-    const n = queries.length;
-    if (!n) { toast("Add some examples first", "err"); return; }
-    if (contexts.length !== n || responses.length !== n || labels.length !== n) {
-      $("calibrate-status").textContent =
-        `The four boxes must have the same number of lines (currently ${n}, ${contexts.length}, ${responses.length}, ${labels.length}).`;
-      $("calibrate-status").className = "status-line inline err";
-      return;
-    }
-    const parsedLabels = labels.map((l) => parseInt(l, 10));
-    if (parsedLabels.some((l) => l !== 0 && l !== 1)) {
-      $("calibrate-status").textContent = "Labels must be 0 (correct) or 1 (made up).";
-      $("calibrate-status").className = "status-line inline err";
-      return;
-    }
-
-    const data = queries.map((q, i) => ({
-      query: q, context: contexts[i], response: responses[i], label: parsedLabels[i],
-    }));
-
-    busy(btn, true, "Teaching\u2026");
-    try {
-      const stats = await API.calibrate(data);
-      $("calibrate-status").textContent = `Learned from ${stats.n_samples} examples.`;
-      $("calibrate-status").className = "status-line inline ok";
-      const warningLines = (stats.warnings || []).map(
-        (w) => `<span class="v bad">\u26a0 ${w}</span><br />`
-      ).join("");
-      $("calibrate-result").innerHTML =
-        `<div style="font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px">what it learned</div>` +
-        warningLines +
-        `It studied <span class="v">${stats.n_samples} examples</span> (${stats.n_hallucinations} of them made up).<br />` +
-        `It will now say <span class="v">"not sure"</span> for any answer scoring below <span class="v good">${pct(stats.threshold)}</span> support.<br />` +
-        `On these examples, it would have approved <span class="v">${pct(stats.coverage)}</span> of them ` +
-        `\u2014 and of the ones it approved, <span class="v ${stats.estimated_fdr > 0 ? "bad" : "good"}">${pct(stats.estimated_fdr)}</span> were actually wrong.<br />` +
-        `Your tolerance: <span class="v">${pct(stats.alpha)}</span>.`;
-      $("calibrate-result").classList.remove("hidden");
-      toast(`Taught on ${stats.n_samples} examples \u2014 the line is now at ${pct(stats.threshold)} support`, "ok");
-    } catch (err) {
-      $("calibrate-status").textContent = `Couldn't teach it: ${err.message}`;
-      $("calibrate-status").className = "status-line inline err";
-    } finally {
-      busy(btn, false);
-    }
-  });
-
-  // ---------- live status ----------
-
-  const history = { fdr: [], coverage: [], threshold: [] };
-  const MAX_POINTS = 100;
-
-  async function pollStatus() {
-    try {
-      const [metrics, online, calibration] = await Promise.all([
-        API.metrics(), API.online(), API.calibration(),
-      ]);
-
-      $("dash-total").textContent = metrics.total_predictions;
-
-      const fdrEl = $("dash-fdr");
-      fdrEl.textContent = pct(metrics.fdr);
-      fdrEl.className = `stat-value ${metrics.fdr > currentAlpha ? "warn" : "good"}`;
-
-      $("dash-coverage").textContent = pct0(metrics.coverage);
-      $("dash-abstention").textContent = pct0(metrics.abstention_rate);
-
-      history.fdr.push(metrics.fdr);
-      history.coverage.push(metrics.coverage);
-      for (const key of Object.keys(history)) {
-        if (history[key].length > MAX_POINTS) history[key].shift();
-      }
-
-      Charts.render($("chart-fdr"), history.fdr, {
-        min: 0,
-        max: Math.max(0.1, ...history.fdr, currentAlpha * 1.5),
-        baseline: currentAlpha,
-        baselineLabel: `your tolerance (${pct(currentAlpha)})`,
-        color: "terra",
-        yFormat: (v) => pct0(v),
-      });
-      Charts.render($("chart-coverage"), history.coverage, {
-        min: 0, max: 1, color: "green", yFormat: (v) => pct0(v),
-      });
-
-      if (online.enabled) {
-        history.threshold.push(online.threshold);
-        if (history.threshold.length > MAX_POINTS) history.threshold.shift();
-        $("aci-panel").innerHTML =
-          `<span class="k">current line:</span> <span class="v good">${pct(online.threshold)} support</span><br />` +
-          `<span class="k">feedback seen:</span> <span class="v">${online.n_updates} reports</span><br />` +
-          `<span class="k">memory:</span> <span class="v">last ${online.window_size} scores</span><br />` +
-          `<span class="k">learning pace:</span> <span class="v">${online.level.toFixed(3)}</span>`;
-        Charts.render($("chart-threshold"), history.threshold, {
-          min: 0, max: 1, color: "blue", yFormat: (v) => pct0(v),
-        });
-      } else {
-        $("aci-panel").textContent = "Auto-adjust is off \u2014 the line stays where teaching put it. Turn it on in \u201cCheck an Answer\u201d \u2192 Setup.";
-        Charts.render($("chart-threshold"), [], {});
-      }
-
-      if (calibration.calibrated) {
-        $("dash-calibration").innerHTML =
-          `<span class="k">taught on:</span> <span class="v">${calibration.n_samples} examples</span><br />` +
-          `<span class="k">the line:</span> <span class="v good">${pct(calibration.threshold)} support</span><br />` +
-          `<span class="k">on training data:</span> <span class="v">${pct(calibration.estimated_fdr)} of approved answers were wrong</span><br />` +
-          `<span class="k">tolerance:</span> <span class="v">${pct(calibration.alpha)}</span>`;
-      } else {
-        $("dash-calibration").textContent =
-          "It hasn't been taught yet \u2014 it's using a rough default standard. Visit \u201cTeach It\u201d to sharpen it.";
-      }
-    } catch (_) { /* server down; keep last render */ }
-  }
-
-  viewHooks.status = () => {
-    pollStatus();
-    clearInterval(statusTimer);
-    statusTimer = setInterval(pollStatus, 3000);
-  };
-
-  $("record-btn").addEventListener("click", async () => {
-    const btn = $("record-btn");
-    const query = $("mon-query").value.trim();
-    const response = $("mon-response").value.trim();
-    if (!query || !response) { toast("The question and the answer are both required", "err"); return; }
-
-    busy(btn, true, "Reporting\u2026");
-    try {
-      const out = await API.record(
-        query,
-        $("mon-context").value.trim(),
-        response,
-        $("mon-hallucination").checked
-      );
-      const m = out.metrics;
-      $("record-status").textContent =
-        `Reported. So far: ${m.total_predictions} answers checked, ${pct(m.fdr)} false alarms.`;
-      $("record-status").className = "status-line inline ok";
-      pollStatus();
-    } catch (err) {
-      $("record-status").textContent = `Couldn't report it: ${err.message}`;
-      $("record-status").className = "status-line inline err";
-    } finally {
-      busy(btn, false);
-    }
-  });
-
-  // ---------- topics ----------
-
-  let activeDomainCalibrate = null;
-
-  function domainCardHTML(d) {
-    const badge = d.drift.drifted
-      ? `<span class="badge drifted">needs re-teaching</span>`
-      : `<span class="badge ${d.alpha <= 0.02 ? "strict" : "ok"}">${strictness(d.alpha)}</span>`;
-    return `
-      <div class="domain-card" data-domain="${d.name}">
-        <div class="domain-card-head">
-          <span class="domain-card-name">${d.name}</span>
-          ${badge}
-        </div>
-        <div class="domain-card-body">
-          <span class="k">tolerance:</span> ${pct(d.alpha)} (${strictness(d.alpha).toLowerCase()})<br />
-          <span class="k">the line:</span> ${d.calibrated ? `${pct(d.threshold)} support` : "not taught yet"}<br />
-          <span class="k">answers checked:</span> ${d.metrics.total_predictions}<br />
-          <span class="k">false alarms:</span> ${pct(d.metrics.fdr)}<br />
-          <span class="k">advice:</span> ${d.drift.recommendation === "Re-calibrate" ? "its data has changed \u2014 teach it again" : "holding its promise"}
-        </div>
-        <div class="domain-card-actions">
-          <button class="btn" data-action="calibrate">Teach it</button>
-          <button class="btn" data-action="drift">Check health</button>
-        </div>
-      </div>`;
-  }
-
-  async function refreshDomains() {
-    try {
-      const { domains } = await API.listDomains();
-      const container = $("domain-cards");
-      if (!domains.length) {
-        container.innerHTML = `<p class="panel-hint" style="margin:0">No topics yet. Add one above \u2014 try \u201cmedicine\u201d with a tolerance of 0.001 (one mistake per thousand answers).</p>`;
-        return;
-      }
-      container.innerHTML = domains.map(domainCardHTML).join("");
-    } catch (err) {
-      toast(`Couldn't load topics: ${err.message}`, "err");
-    }
-  }
-
-  $("register-domain-btn").addEventListener("click", async () => {
-    const name = $("domain-name").value.trim();
-    const alpha = parseFloat($("domain-alpha").value);
-    if (!name) { toast("Give the topic a name", "err"); return; }
-    try {
-      await API.registerDomain(name, alpha);
-      $("domain-register-status").textContent =
-        `Added "${name}" \u2014 ${strictness(alpha).toLowerCase()} (${pct(alpha)} tolerance).`;
-      $("domain-register-status").className = "status-line ok";
-      $("domain-name").value = "";
-      refreshDomains();
-    } catch (err) {
-      $("domain-register-status").textContent = `Couldn't add it: ${err.message}`;
-      $("domain-register-status").className = "status-line err";
-    }
-  });
-
-  $("domain-cards").addEventListener("click", async (e) => {
-    const btn = e.target.closest("button[data-action]");
-    if (!btn) return;
-    const name = btn.closest(".domain-card").dataset.domain;
-
-    if (btn.dataset.action === "calibrate") {
-      activeDomainCalibrate = name;
-      $("domain-calibrate-name").textContent = name;
-      $("domain-calibrate-panel").classList.remove("hidden");
-      $("domain-calibrate-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
-    } else if (btn.dataset.action === "drift") {
-      try {
-        await API.domainDrift(name);
-        refreshDomains();
-        toast(`Checked "${name}"`, "ok");
-      } catch (err) {
-        toast(`Health check failed: ${err.message}`, "err");
-      }
-    }
-  });
-
-  $("domain-calibrate-btn").addEventListener("click", async () => {
-    const btn = $("domain-calibrate-btn");
-    if (!activeDomainCalibrate) return;
-    const rows = parseLines("domain-cal-rows").map((line) => {
-      const parts = line.split("|").map((p) => p.trim());
-      if (parts.length !== 4) return null;
-      const label = parseInt(parts[3], 10);
-      if (label !== 0 && label !== 1) return null;
-      return { query: parts[0], context: parts[1], response: parts[2], label };
     });
-    if (!rows.length || rows.some((r) => r === null)) {
-      $("domain-calibrate-status").textContent =
-        "Each line needs four parts separated by | \u2014 question | sources | answer | 0 or 1.";
-      $("domain-calibrate-status").className = "status-line inline err";
-      return;
-    }
-    busy(btn, true, "Teaching\u2026");
+  });
+}
+
+/* ------------------------------------------------------------- loading */
+
+async function loadConfig() {
+  state.config = await API.get("/config");
+  renderTopbarState();
+  renderFooter();
+  renderTolerance();
+  renderFormula();
+}
+
+async function loadCalibration() {
+  state.calibration = await API.get("/calibration");
+  renderTolerance();
+}
+
+async function loadDomains() {
+  const data = await API.get("/domains");
+  state.domains = data.domains;
+  renderDomains();
+  renderTopicRow();
+  renderChartTopicRow();
+}
+
+async function loadDemo() {
+  state.demo = await API.get("/demo");
+  state.activeTopic = Object.keys(state.demo.showcase)[0];
+  if (!state.activeKind) {
+    const first = state.demo.showcase[state.activeTopic].cases[0];
+    state.activeKind = first ? first.kind : null;
+  }
+  renderPresets();
+}
+
+async function loadStatus() {
+  try {
+    state.metrics = await API.get("/metrics");
+  } catch (err) {
+    state.metrics = null;
+  }
+  if (!state.domains.length) {
     try {
-      const stats = await API.calibrateDomain(activeDomainCalibrate, rows);
-      $("domain-calibrate-status").textContent =
-        `Taught "${activeDomainCalibrate}" on ${stats.n_samples} examples \u2014 the line is now at ${pct(stats.threshold)} support.`;
-      $("domain-calibrate-status").className = "status-line inline ok";
-      refreshDomains();
+      await loadDomains();
     } catch (err) {
-      $("domain-calibrate-status").textContent = `Couldn't teach it: ${err.message}`;
-      $("domain-calibrate-status").className = "status-line inline err";
-    } finally {
-      busy(btn, false);
+      /* the table renders its own empty state */
+    }
+  }
+  renderMetrics();
+  renderDriftTable();
+  await renderSeparation();
+}
+
+/* ------------------------------------------------------ check: presets */
+
+function renderPresets() {
+  if (!state.demo) return;
+  const topics = $("preset-row");
+  const kinds = $("kind-row");
+  topics.replaceChildren();
+  kinds.replaceChildren();
+
+  Object.entries(state.demo.showcase).forEach(([topic, spec]) => {
+    const on = topic === state.activeTopic;
+    const chip = el("button", {
+      type: "button",
+      class: `chip button-xsm${on ? " is-active" : ""}`,
+      "aria-pressed": String(on),
+    }, title(topic));
+    chip.addEventListener("click", () => {
+      state.activeTopic = topic;
+      state.activeKind = null;
+      renderPresets();
+    });
+    topics.appendChild(chip);
+  });
+
+  state.demo.showcase[state.activeTopic].cases.forEach((item) => {
+    const on = item.kind === state.activeKind;
+    const chip = el("button", {
+      type: "button",
+      class: `chip button-xsm${on ? " is-active" : ""}`,
+      "aria-pressed": String(on),
+    });
+    chip.appendChild(el("span", { class: `chip-dot chip-dot--${item.kind}` }));
+    chip.appendChild(el("span", {}, `${item.kind} answer`));
+    chip.addEventListener("click", () => {
+      state.activeKind = item.kind;
+      fillForm(state.activeTopic, item.kind);
+      renderPresets();
+    });
+    kinds.appendChild(chip);
+  });
+
+  if (state.activeKind) {
+    fillForm(state.activeTopic, state.activeKind);
+  } else {
+    loadPresetIntoForm();
+  }
+}
+
+function loadPresetIntoForm() {
+  const spec = state.demo.showcase[state.activeTopic];
+  $("f-query").value = spec.query;
+  $("f-context").value = spec.context;
+  $("f-response").value = "";
+  $("check-domain-note").textContent = `Auto-routes by topic. Example loaded: ${state.activeTopic}.`;
+  state.toleranceTopic = state.activeTopic;
+  renderTolerance();
+}
+
+function fillForm(topic, kind) {
+  const spec = state.demo.showcase[topic];
+  const item = spec.cases.find((c) => c.kind === kind);
+  $("f-query").value = spec.query;
+  $("f-context").value = spec.context;
+  $("f-response").value = item ? item.response : "";
+  $("check-error").hidden = true;
+  $("check-domain-note").textContent = `Example loaded: ${topic}, ${kind} answer.`;
+  state.toleranceTopic = topic;
+  renderTolerance();
+}
+
+/* --------------------------------------------------------------- check */
+
+function bindCheckForm() {
+  $("check-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    runCheck();
+  });
+  $("check-clear").addEventListener("click", () => {
+    $("f-response").value = "";
+    $("check-error").hidden = true;
+    $("result-card").hidden = true;
+  });
+}
+
+async function runCheck() {
+  if (state.busy) return;
+  const query = $("f-query").value.trim();
+  const context = $("f-context").value.trim();
+  const response = $("f-response").value.trim();
+  const errorNode = $("check-error");
+
+  if (!query || !context || !response) {
+    showError(errorNode, "Fill in the question, the source passage and the answer before checking.");
+    return;
+  }
+  errorNode.hidden = true;
+
+  state.busy = true;
+  const submit = $("check-submit");
+  const originalLabel = submit.textContent;
+  submit.disabled = true;
+  submit.textContent = "Checking";
+  $("result-card").hidden = false;
+  $("result-skeleton").hidden = false;
+  $("result-body").hidden = true;
+  $("result-latency").textContent = "";
+
+  try {
+    const result = await API.post("/predict", { query, context: [context], response });
+    renderResult(result);
+  } catch (err) {
+    $("result-card").hidden = true;
+    showError(errorNode, err.message);
+  } finally {
+    state.busy = false;
+    submit.disabled = false;
+    submit.textContent = originalLabel;
+    $("result-skeleton").hidden = true;
+  }
+}
+
+function renderResult(result, options = {}) {
+  const card = $("result-card");
+  const fromDocument = options.fromDocument === true;
+  card.hidden = false;
+  $("result-body").hidden = false;
+  $("result-band").hidden = false;
+  $("fact-score").hidden = false;
+
+  const approved = !result.abstained;
+  const calibrated = result.calibrated !== false;
+  const verdict = $("result-verdict");
+  verdict.classList.toggle("is-approved", approved && calibrated);
+  verdict.classList.toggle("is-withheld", !approved || !calibrated);
+  useIcon($("result-icon"), approved && calibrated ? "check" : "withhold");
+  $("result-verdict-text").textContent = calibrated
+    ? (approved ? "Approved" : "Withheld")
+    : "No bound";
+
+  const threshold = clamp01(result.threshold === null || result.threshold === undefined ? 1 : result.threshold);
+  const band = card.querySelector(".band");
+  const topicAlpha = result.alpha !== null && result.alpha !== undefined
+    ? result.alpha
+    : topicTolerance(result.domain);
+
+  if (!calibrated) {
+    $("result-meaning").textContent =
+      `The ${result.domain} topic has no calibration, so this score carries no guarantee. ` +
+      `The threshold shown is a plain default, not a certified bound.`;
+  } else if (approved) {
+    $("result-meaning").textContent = fromDocument
+      ? `The score cleared the ${result.domain} threshold, so the check approves this answer. ` +
+        `That threshold comes from the demo calibration set, not from this document.`
+      : `The score cleared the threshold, so this answer is covered by the promise for ${result.domain}. ` +
+        `Among answers approved at a tolerance of ${alpha(topicAlpha)}, the expected share that are wrong stays at or below ${alpha(topicAlpha)}.`;
+  } else {
+    $("result-meaning").textContent =
+      `The score fell short of the threshold, so nothing is claimed about this answer. It may still be right. ` +
+      `The system withholds instead of approving something the bound cannot cover.`;
+  }
+
+  const approvedStart = threshold * 100;
+  const width = Math.max(0, 100 - approvedStart);
+  $("band-approved").style.left = `${approvedStart}%`;
+  $("band-approved").style.width = `${width}%`;
+  $("band-threshold").style.left = `${approvedStart}%`;
+  $("band-marker").style.left = `${clamp01(result.risk_score) * 100}%`;
+  band.setAttribute(
+    "aria-label",
+    `Score ${score(result.risk_score)} against a threshold of ${score(threshold)}.`
+  );
+
+  $("result-score").textContent = score(result.risk_score);
+  $("result-threshold").textContent = score(threshold);
+  $("result-domain").textContent = result.domain;
+  $("result-latency").textContent = `${Math.round(result.latency_ms)} ms`;
+
+  const gap = result.risk_score - threshold;
+  const parts = [];
+  parts.push(
+    gap >= 0
+      ? `Score sits ${score(gap)} above the ${result.domain} threshold.`
+      : `Score sits ${score(Math.abs(gap))} below the ${result.domain} threshold.`
+  );
+  const breakdown = result.scoring_breakdown || {};
+  if (breakdown.used_llm_judge) {
+    parts.push("A language model judge reviewed this one because the first score landed in the uncertain band.");
+  } else if (breakdown.judge_failed) {
+    parts.push("The judge was unavailable, so the score rests on the entailment model alone.");
+  }
+  if (options.note) parts.push(options.note);
+  $("result-note").textContent = parts.join(" ");
+
+  state.toleranceTopic = result.domain;
+  renderTolerance();
+}
+
+/* ------------------------------------------------- check: document mode */
+
+const DOC_EXT = /\.(pdf|txt|md|text)$/i;
+const MAX_UPLOAD_MB = 10;
+
+function bindModeSwitch() {
+  const paste = $("mode-paste");
+  const upload = $("mode-upload");
+
+  const setMode = (mode) => {
+    const isUpload = mode === "upload";
+    $("check-form").hidden = isUpload;
+    $("panel-upload").hidden = !isUpload;
+    $("result-card").hidden = true;
+    paste.classList.toggle("is-active", !isUpload);
+    upload.classList.toggle("is-active", isUpload);
+    paste.setAttribute("aria-pressed", String(!isUpload));
+    upload.setAttribute("aria-pressed", String(isUpload));
+  };
+
+  paste.addEventListener("click", () => setMode("paste"));
+  upload.addEventListener("click", () => setMode("upload"));
+}
+
+function bindUpload() {
+  const input = $("doc-file");
+  const zone = $("doc-dropzone");
+
+  input.addEventListener("change", () => {
+    if (input.files && input.files[0]) uploadDocument(input.files[0]);
+  });
+
+  ["dragenter", "dragover"].forEach((name) => {
+    zone.addEventListener(name, (event) => {
+      event.preventDefault();
+      zone.classList.add("is-over");
+    });
+  });
+  ["dragleave", "drop"].forEach((name) => {
+    zone.addEventListener(name, (event) => {
+      event.preventDefault();
+      zone.classList.remove("is-over");
+    });
+  });
+  zone.addEventListener("drop", (event) => {
+    const file = event.dataTransfer && event.dataTransfer.files[0];
+    if (file) uploadDocument(file);
+  });
+
+  /* A file dropped outside the zone must not navigate the page away. */
+  ["dragover", "drop"].forEach((name) => {
+    document.addEventListener(name, (event) => {
+      const types = event.dataTransfer ? event.dataTransfer.types : [];
+      if (types && Array.prototype.includes.call(types, "Files")) event.preventDefault();
+    });
+  });
+
+  $("doc-ask").addEventListener("click", runAsk);
+  $("doc-clear").addEventListener("click", () => {
+    state.doc = null;
+    input.value = "";
+    $("doc-query").value = "";
+    $("doc-status").hidden = true;
+    $("doc-answer").hidden = true;
+    $("doc-error").hidden = true;
+    $("result-card").hidden = true;
+  });
+}
+
+async function uploadDocument(file) {
+  const errorNode = $("doc-error");
+  const status = $("doc-status");
+  const ask = $("doc-ask");
+
+  if (!DOC_EXT.test(file.name) && file.type !== "text/plain") {
+    showError(errorNode, "Choose a PDF or a text file.");
+    return;
+  }
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    showError(errorNode, `That file is larger than the ${MAX_UPLOAD_MB} MB limit.`);
+    return;
+  }
+
+  errorNode.hidden = true;
+  status.hidden = false;
+  status.textContent = `Reading ${file.name}. The first upload also loads the embedding model, so it can take a few seconds.`;
+  $("doc-answer").hidden = true;
+  $("result-card").hidden = true;
+  ask.disabled = true;
+
+  try {
+    state.doc = await API.upload("/documents/upload", file);
+    const kind = state.doc.kind === "pdf" ? `${state.doc.pages} pages` : "text file";
+    status.textContent =
+      `${state.doc.filename} is loaded: ${kind}, ${state.doc.passages} passages.`;
+    $("doc-query").focus();
+  } catch (err) {
+    state.doc = null;
+    status.hidden = true;
+    showError(errorNode, err.message);
+  } finally {
+    ask.disabled = false;
+  }
+}
+
+async function runAsk() {
+  if (state.busy) return;
+  const errorNode = $("doc-error");
+  const query = $("doc-query").value.trim();
+
+  if (!state.doc) {
+    showError(errorNode, "Upload a document first.");
+    return;
+  }
+  if (!query) {
+    showError(errorNode, "Type a question about the document.");
+    return;
+  }
+  errorNode.hidden = true;
+
+  state.busy = true;
+  const ask = $("doc-ask");
+  const label = ask.textContent;
+  ask.disabled = true;
+  ask.textContent = "Asking";
+  $("doc-answer").hidden = true;
+  $("result-card").hidden = false;
+  $("result-skeleton").hidden = false;
+  $("result-body").hidden = true;
+  $("result-latency").textContent = "";
+
+  try {
+    const reply = await API.post("/ask", { doc_id: state.doc.doc_id, query });
+    renderDocumentAnswer(reply);
+    if (!reply.verdict) {
+      renderNoVerdict(reply);
+    } else if (reply.mode === "extractive" && reply.grounding === "exact") {
+      renderGrounded(reply);
+    } else {
+      renderResult(reply.verdict, { fromDocument: true, note: reply.note });
+    }
+  } catch (err) {
+    $("result-card").hidden = true;
+    showError(errorNode, err.message);
+  } finally {
+    state.busy = false;
+    ask.disabled = false;
+    ask.textContent = label;
+    $("result-skeleton").hidden = true;
+  }
+}
+
+function renderDocumentAnswer(reply) {
+  $("doc-answer").hidden = false;
+  $("doc-answer-text").textContent =
+    reply.answer || "The document does not appear to answer this question.";
+  $("doc-answer-mode").textContent =
+    reply.mode === "llm"
+      ? "written by the model"
+      : reply.mode === "extractive"
+        ? "quoted from the document"
+        : "no answer found";
+  $("doc-answer-source").textContent = reply.grounded_in || "";
+  $("doc-source").hidden = !reply.grounded_in;
+}
+
+function renderNoVerdict(reply) {
+  $("result-body").hidden = false;
+  const verdict = $("result-verdict");
+  verdict.classList.remove("is-approved");
+  verdict.classList.add("is-withheld");
+  useIcon($("result-icon"), "withhold");
+  $("result-verdict-text").textContent = "No answer";
+  $("result-meaning").textContent = reply.note;
+  $("result-band").hidden = true;
+  $("result-score").textContent = "n/a";
+  $("result-threshold").textContent = "n/a";
+  $("result-domain").textContent = "n/a";
+  $("result-latency").textContent = "";
+  $("result-note").textContent = "";
+}
+
+function renderGrounded(reply) {
+  const verdict = reply.verdict;
+  $("result-body").hidden = false;
+  const node = $("result-verdict");
+  node.classList.remove("is-withheld");
+  node.classList.add("is-approved");
+  useIcon($("result-icon"), "check");
+  $("result-verdict-text").textContent = "Grounded";
+  $("result-meaning").textContent =
+    "This answer appears word for word in the source passage, so it is grounded by construction. " +
+    "The conformal verdict is for answers a model writes; set a provider key to have the system write one.";
+  $("result-band").hidden = true;
+  $("fact-score").hidden = false;
+  $("result-score").textContent = score(verdict.risk_score);
+  $("result-threshold").textContent = score(verdict.threshold);
+  $("result-domain").textContent = verdict.domain;
+  $("result-latency").textContent = `${Math.round(verdict.latency_ms)} ms`;
+  $("result-note").textContent =
+    `Exact quote. The checker reads it at ${score(verdict.risk_score)} against a threshold of ${score(verdict.threshold)}; ` +
+    "containment is used instead because the sentence is present in the passage.";
+  state.toleranceTopic = verdict.domain;
+  renderTolerance();
+}
+
+function topicTolerance(name) {
+  const found = state.domains.find((d) => d.name === name);
+  return found ? found.alpha : (state.config ? state.config.alpha : 0.15);
+}
+
+/* ------------------------------------------------ check: tolerance card */
+
+function renderAlphaRow(container, active, onPick) {
+  container.replaceChildren();
+  ALPHA_CHOICES.forEach((value) => {
+    const chip = el("button", {
+      type: "button",
+      class: `chip button-xsm${Math.abs(value - active) < 1e-9 ? " is-active" : ""}`,
+      "aria-pressed": String(Math.abs(value - active) < 1e-9),
+    }, alpha(value));
+    chip.addEventListener("click", () => onPick(value));
+    container.appendChild(chip);
+  });
+}
+
+function renderTolerance() {
+  const topic = state.toleranceTopic || "general";
+  const cfg = state.config || {};
+  if (cfg.alpha === undefined) return;
+
+  let alphaValue;
+  let thresholdValue;
+  let samples;
+  let needed;
+  let calibrated;
+  let certifiable;
+
+  if (topic === "general") {
+    const cal = state.calibration || {};
+    alphaValue = cfg.alpha;
+    thresholdValue = cal.threshold;
+    samples = cal.n_samples;
+    needed = cal.min_samples_required;
+    calibrated = cal.calibrated === true;
+    certifiable = cal.certifiable === true;
+  } else {
+    const domain = state.domains.find((d) => d.name === topic);
+    if (!domain) return;
+    alphaValue = domain.alpha;
+    thresholdValue = domain.threshold;
+    samples = domain.n_samples;
+    needed = domain.min_samples_required;
+    calibrated = domain.threshold !== null && domain.threshold !== undefined;
+    certifiable = domain.certifiable === true;
+  }
+
+  renderToleranceTopicRow();
+  renderAlphaRow($("alpha-row"), alphaValue, async (value) => {
+    try {
+      const body = topic === "general" ? { alpha: value, online: true } : { alpha: value, domain: topic };
+      await API.post("/config", body);
+      await loadConfig();
+      await loadCalibration();
+      await loadDomains();
+      renderTolerance();
+      if (!$("result-card").hidden && $("f-response").value.trim()) runCheck();
+    } catch (err) {
+      showError($("check-error"), err.message);
     }
   });
 
-  viewHooks.topics = refreshDomains;
+  $("tolerance-alpha").textContent = alpha(alphaValue);
+  $("tolerance-topic-label").textContent = title(topic);
+  $("tolerance-threshold").textContent = calibrated ? score(thresholdValue) : "n/a";
+  $("tolerance-samples").textContent = calibrated ? String(samples) : "0";
+  $("tolerance-needed").textContent = calibrated || needed ? String(needed) : "n/a";
 
-  // ---------- boot ----------
+  const note = $("tolerance-note");
+  if (!calibrated) {
+    note.textContent = `The ${topic} topic has no calibration yet. Run the seeding step, then reload this page.`;
+    note.classList.add("is-short");
+    return;
+  }
+  const short = samples < needed;
+  note.textContent = short
+    ? `Only ${samples} calibration samples are loaded but this tolerance needs ${needed}, so the threshold sits above every score and everything is withheld. Raise the tolerance or add samples.`
+    : `Certified: ${samples} calibration samples is enough for a tolerance of ${alpha(alphaValue)}. Lowering the tolerance raises the sample count it needs.`;
+  $("promise-text").textContent =
+    `Promise: of the answers approved, the expected share that are wrong stays at or below ${alpha(alphaValue)}.`;
+  $("tolerance-note").classList.toggle("is-short", short || !certifiable);
+}
 
-  refreshEngineStatus();
-})();
+function renderToleranceTopicRow() {
+  const row = $("tolerance-topic-row");
+  if (!row || !state.domains.length) return;
+  row.replaceChildren();
+  state.domains.forEach((domain) => {
+    const on = domain.name === (state.toleranceTopic || "general");
+    const chip = el("button", {
+      type: "button",
+      class: `chip button-xsm${on ? " is-active" : ""}`,
+      "aria-pressed": String(on),
+    }, title(domain.name));
+    chip.addEventListener("click", () => {
+      state.toleranceTopic = domain.name;
+      renderTolerance();
+    });
+    row.appendChild(chip);
+  });
+  row.style.marginBottom = "var(--s-100)";
+}
+
+/* -------------------------------------------------------------- topics */
+
+function renderDomains() {
+  const grid = $("domain-grid");
+  grid.replaceChildren();
+
+  const order = ["general", "medicine", "finance"];
+  const list = state.domains
+    .slice()
+    .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+
+  list.forEach((domain) => {
+    const card = el("section", { class: "card" });
+    const head = el("div", { class: "card-head" });
+    head.appendChild(el("h4", { class: "title-1" }, title(domain.name)));
+    head.appendChild(el("span", { class: "caption-4 card-note" },
+      domain.certifiable ? "certified" : "needs more samples"));
+    card.appendChild(head);
+
+    card.appendChild(el("p", { class: "body-6 card-body" },
+      TOPIC_BLURB[domain.name] || "Its own calibration set and its own threshold."));
+
+    const facts = el("dl", { class: "facts" });
+    const rows = [
+      ["Tolerance", `\u03b1 = ${alpha(domain.alpha)}`],
+      ["Threshold", domain.threshold === null ? "n/a" : score(domain.threshold)],
+      ["Samples", String(domain.n_samples || 0)],
+      ["Approved", domain.stats ? pct(domain.stats.coverage) : "n/a"],
+    ];
+    rows.forEach(([label, value]) => {
+      const wrap = el("div", { class: "fact" });
+      wrap.appendChild(el("dt", { class: "caption-4" }, label));
+      wrap.appendChild(el("dd", { class: "num" }, value));
+      facts.appendChild(wrap);
+    });
+    card.appendChild(facts);
+
+    const risk = el("p", { class: "caption-2 card-body" });
+    if (domain.stats) {
+      risk.textContent =
+        `In sample, ${pct(domain.stats.approved_wrong_rate)} of answers were approved and wrong, ` +
+        `against a tolerance of ${alpha(domain.alpha)}.`;
+    }
+    risk.style.marginTop = "var(--s-200)";
+    card.appendChild(risk);
+
+    const alphaLabel = el("span", { class: "title-4" }, "Change the tolerance");
+    alphaLabel.style.display = "block";
+    alphaLabel.style.marginTop = "auto";
+    alphaLabel.style.paddingTop = "var(--s-300)";
+    alphaLabel.style.marginBottom = "var(--s-75)";
+    card.appendChild(alphaLabel);
+
+    const alphaRow = el("div", { class: "chip-row" });
+    renderAlphaRow(alphaRow, domain.alpha, async (value) => {
+      try {
+        await API.post("/config", { alpha: value, domain: domain.name });
+        await loadDomains();
+        await loadCalibration();
+      } catch (err) {
+        console.warn(err.message);
+      }
+    });
+    card.appendChild(alphaRow);
+
+    const caseRow = el("div", { class: "chip-row case-row" });
+    const spec = state.demo ? state.demo.showcase[domain.name] : null;
+    if (spec) {
+      [
+        ["faithful", "Faithful answer"],
+        ["subtle", "Subtly wrong answer"],
+      ].forEach(([kind, label]) => {
+        const chip = el("button", { type: "button", class: "chip button-xsm" }, label);
+        chip.addEventListener("click", () => runDomainCase(domain.name, kind, chip));
+        caseRow.appendChild(chip);
+      });
+    }
+    card.appendChild(caseRow);
+    card.appendChild(el("p", { class: "caption-2 card-foot", "data-case-out": domain.name }, ""));
+
+    grid.appendChild(card);
+  });
+
+  renderMinTable();
+  renderTolerance();
+}
+
+async function runDomainCase(domain, kind, chip) {
+  const spec = state.demo.showcase[domain];
+  const item = spec.cases.find((c) => c.kind === kind);
+  const out = document.querySelector(`[data-case-out="${domain}"]`);
+  const label = chip.textContent;
+  chip.disabled = true;
+  chip.textContent = "Running";
+  out.textContent = "";
+  try {
+    const result = await API.post("/predict", {
+      query: spec.query,
+      context: [spec.context],
+      response: item.response,
+      domain,
+    });
+    out.textContent =
+      `${result.abstained ? "Withheld" : "Approved"} at a score of ${score(result.risk_score)}, ` +
+      `against a ${domain} threshold of ${score(result.threshold)}.`;
+  } catch (err) {
+    out.textContent = err.message;
+  } finally {
+    chip.disabled = false;
+    chip.textContent = label;
+  }
+}
+
+function renderMinTable() {
+  const body = $("min-body");
+  if (!body) return;
+  body.replaceChildren();
+  MIN_SAMPLES.forEach((row) => {
+    const tr = el("tr");
+    tr.appendChild(el("td", { class: "num cell-name" }, alpha(row.alpha)));
+    tr.appendChild(el("td", { class: "num" }, String(row.n)));
+    tr.appendChild(el("td", {}, `A calibration set of ${row.n} rows can certify this tolerance.`));
+    body.appendChild(tr);
+  });
+}
+
+function renderTopicRow() {
+  if (!state.domains.length || state.activeKind) return;
+  $("check-domain-note").textContent =
+    `Auto-routes by topic, over ${state.domains.length} loaded`;
+}
+
+function renderChartTopicRow() {
+  const row = $("chart-domain-row");
+  if (!row) return;
+  row.replaceChildren();
+  state.domains.forEach((domain) => {
+    const chip = el("button", {
+      type: "button",
+      class: `chip button-xsm${domain.name === state.chartTopic ? " is-active" : ""}`,
+      "aria-pressed": String(domain.name === state.chartTopic),
+    }, title(domain.name));
+    chip.addEventListener("click", () => {
+      state.chartTopic = domain.name;
+      renderChartTopicRow();
+      renderSeparation();
+    });
+    row.appendChild(chip);
+  });
+}
+
+/* -------------------------------------------------------------- status */
+
+function renderMetrics() {
+  const grid = $("metric-grid");
+  if (!grid) return;
+  grid.replaceChildren();
+
+  const metrics = state.metrics;
+  const cal = state.calibration;
+  const tolerance = state.config ? state.config.alpha : 0.15;
+  const traffic = metrics ? metrics.total_predictions : 0;
+  const labelled = metrics ? metrics.labeled_feedback : 0;
+
+  const cards = [
+    {
+      label: "Approved and wrong",
+      value: labelled ? pct(metrics.approved_wrong_rate) : "n/a",
+      note: labelled
+        ? `The promise, measured against a tolerance of ${alpha(tolerance)}.`
+        : "Fills in once labelled feedback arrives. The promise itself is set on the calibration set.",
+      tone: labelled && metrics.approved_wrong_rate > tolerance ? "is-caution" : labelled ? "is-good" : "",
+    },
+    {
+      label: "False alarms",
+      value: labelled ? pct(metrics.false_alarm_rate) : "n/a",
+      note: "Of the answers withheld, the share that were actually fine. Not part of the promise.",
+      tone: "",
+    },
+    {
+      label: "Approved",
+      value: traffic ? pct(metrics.coverage) : "n/a",
+      note: traffic
+        ? "Share of answers the system was willing to approve."
+        : "No answers checked since the server started.",
+      tone: "",
+    },
+    {
+      label: "Withheld",
+      value: traffic ? pct(metrics.abstention_rate) : "n/a",
+      note: traffic ? `${traffic} answers checked since start.` : "No answers checked since the server started.",
+      tone: "",
+    },
+  ];
+
+  cards.forEach((card) => {
+    const node = el("div", { class: "metric" });
+    node.appendChild(el("p", { class: "caption-4 metric-label" }, card.label));
+    node.appendChild(el("p", { class: `num metric-value ${card.tone}` }, card.value));
+    node.appendChild(el("p", { class: "caption-2 metric-note" }, card.note));
+    grid.appendChild(node);
+  });
+
+  const foot = el("p", { class: "caption-2 metric-foot" });
+  foot.textContent = cal && cal.calibrated
+    ? `${labelled} labelled answers so far. The two rates above describe traffic; the promise is certified on ${cal.n_samples} calibration samples.`
+    : "Waiting for the calibration summary from the server.";
+  document.querySelectorAll(".metric-foot").forEach((node) => node.remove());
+  grid.parentElement.insertBefore(foot, $("separation-card"));
+}
+
+function renderDriftTable() {
+  const body = $("drift-body");
+  if (!body) return;
+  body.replaceChildren();
+
+  if (!state.domains.length) {
+    const tr = el("tr");
+    const td = el("td", { class: "body-6" }, "No topics are registered yet.");
+    td.colSpan = 5;
+    tr.appendChild(td);
+    body.appendChild(tr);
+    $("drift-note").textContent = "";
+    return;
+  }
+
+  state.domains.forEach((domain) => {
+    const m = domain.metrics || {};
+    const drifted = domain.drift && domain.drift.drifted;
+    const seen = (m.total_predictions || 0) > 0;
+    const labelled = (m.labeled_feedback || 0) > 0;
+    const tr = el("tr");
+    tr.appendChild(el("td", { class: "cell-name" }, title(domain.name)));
+    tr.appendChild(el("td", { class: "num" }, alpha(domain.alpha)));
+    tr.appendChild(el("td", { class: "num" }, labelled ? pct(m.approved_wrong_rate || 0) : "n/a"));
+    tr.appendChild(el("td", { class: "num" }, seen ? pct(m.abstention_rate || 0) : "n/a"));
+    const stateCell = el("td");
+    const pill = el("span", { class: `pill ${drifted ? "pill-warn" : "pill-ok"}` },
+      drifted ? "Drift flagged" : "In range");
+    stateCell.appendChild(pill);
+    tr.appendChild(stateCell);
+    body.appendChild(tr);
+  });
+
+  const labels = state.domains.reduce((sum, d) => sum + ((d.metrics || {}).labeled_feedback || 0), 0);
+  $("drift-note").textContent = labels
+    ? `${labels} labelled answers so far`
+    : "no labelled answers yet";
+}
+
+async function renderSeparation() {
+  const wrap = $("separation-chart");
+  if (!wrap) return;
+
+  let data;
+  try {
+    data = await API.get(`/calibration/scores?domain=${encodeURIComponent(state.chartTopic)}`);
+  } catch (err) {
+    wrap.replaceChildren(el("p", { class: "body-6" }, err.message));
+    return;
+  }
+
+  const points = data.points || [];
+  if (!points.length) {
+    wrap.replaceChildren(el("p", { class: "body-6" }, "No calibration points for this topic."));
+    $("sep-note").textContent = "calibration set";
+    return;
+  }
+
+  $("sep-note").textContent = data.calibrated
+    ? `calibration set \u00b7 threshold ${score(data.threshold)}`
+    : "calibration set \u00b7 not certifiable";
+
+  const width = 640;
+  const padLeft = 96;
+  const padRight = 16;
+  const rowTop = 32;
+  const rowGap = 56;
+  const height = rowTop + rowGap + 48;
+  const plotWidth = width - padLeft - padRight;
+  const x = (value) => padLeft + clamp01(value) * plotWidth;
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    "aria-label": `${points.length} calibration answers plotted by score. The threshold sits at ${score(data.threshold)}.`,
+  });
+
+  const rows = [
+    { label: "faithful", value: 0, top: rowTop, color: "var(--ok)" },
+    { label: "wrong", value: 1, top: rowTop + rowGap, color: "var(--bad)" },
+  ];
+
+  rows.forEach((row) => {
+    svg.appendChild(svgEl("line", {
+      x1: padLeft, x2: padLeft + plotWidth, y1: row.top, y2: row.top,
+      stroke: "var(--line)", "stroke-width": 1,
+    }));
+    svg.appendChild(svgEl("text", {
+      x: padLeft - 12, y: row.top + 4, "text-anchor": "end",
+      fill: "var(--text-3)", "font-size": 12, "font-family": "Geist, sans-serif",
+    }, row.label));
+  });
+
+  [0, 0.25, 0.5, 0.75, 1].forEach((tick) => {
+    const tx = x(tick);
+    svg.appendChild(svgEl("line", {
+      x1: tx, x2: tx, y1: rowTop - 12, y2: rowTop + rowGap + 12,
+      stroke: "var(--line)", "stroke-width": 1,
+    }));
+    svg.appendChild(svgEl("text", {
+      x: tx, y: rowTop + rowGap + 36, "text-anchor": "middle",
+      fill: "var(--text-3)", "font-size": 12, "font-family": "Geist Mono, monospace",
+    }, tick.toFixed(2)));
+  });
+
+  const cut = data.threshold === null ? 1 : data.threshold;
+  const thresholdX = x(cut);
+  svg.appendChild(svgEl("line", {
+    x1: thresholdX, x2: thresholdX, y1: rowTop - 22, y2: rowTop + rowGap + 18,
+    stroke: "var(--text-2)", "stroke-width": 1, "stroke-dasharray": "4 4",
+  }));
+
+  rows.forEach((row) => {
+    const inRow = points
+      .filter((point) => point.label === row.value)
+      .sort((a, b) => a.score - b.score);
+    inRow.forEach((point, index) => {
+      const stack = index % 3;
+      svg.appendChild(svgEl("circle", {
+        cx: x(point.score),
+        cy: row.top - 8 + stack * 8,
+        r: 4,
+        fill: row.color,
+        opacity: 0.85,
+      }));
+    });
+  });
+
+  wrap.replaceChildren(svg);
+}
+
+/* -------------------------------------------------------------- method */
+
+function renderFormula() {
+  if (!state.config) return;
+  $("formula-line").textContent =
+    `E[ P(approved and wrong) ] \u2264 ${alpha(state.config.alpha)}`;
+}
+
+/* --------------------------------------------------------- chrome text */
+
+function renderTopbarState() {
+  if (!state.config) return;
+  const parts = [];
+  parts.push(state.config.calibrated ? "calibrated" : "not calibrated");
+  parts.push(`${state.config.documents} documents`);
+  $("topbar-state").textContent = parts.join(" \u00b7 ");
+}
+
+function renderFooter() {
+  if (!state.config) return;
+  const model =
+    state.config.nli_model === "small"
+      ? "nli-deberta-v3-small"
+      : state.config.nli_model === "large"
+        ? "nli-deberta-v3-large"
+        : state.config.nli_model;
+  const judge = state.config.llm_judge_configured
+    ? "judge on"
+    : "judge off, no provider key";
+  $("footer-state").textContent =
+    `Local demo \u00b7 ${state.config.documents} documents \u00b7 e5-base-v2 retrieval \u00b7 ` +
+    `nli-deberta scoring (${model}) \u00b7 ${judge}.`;
+}
+
+/* ------------------------------------------------------------------ go */
+
+async function boot() {
+  bindNav();
+  bindCheckForm();
+  bindModeSwitch();
+  bindUpload();
+  activate("check", false);
+
+  const failures = [];
+  const step = async (label, fn) => {
+    try {
+      await fn();
+    } catch (err) {
+      failures.push(`${label}: ${err.message}`);
+    }
+  };
+
+  await step("config", loadConfig);
+  await step("demo", loadDemo);
+  await step("calibration", loadCalibration);
+  await step("topics", loadDomains);
+  await step("status", loadStatus);
+
+  if (failures.length) {
+    showError($("check-error"), failures.join(" "));
+  }
+}
+
+document.addEventListener("DOMContentLoaded", boot);

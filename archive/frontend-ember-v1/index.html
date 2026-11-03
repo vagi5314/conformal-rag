@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conformal RAG — A lie detector for AI answers</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="shell">
+
+    <aside class="rail">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="7.5" fill="#e8833a" />
+          <rect x="0" y="13.5" width="24" height="10.5" fill="#14110e" />
+          <line x1="2" y1="13.5" x2="22" y2="13.5" stroke="#e8833a" stroke-width="1" />
+        </svg>
+        <div class="brand-text">
+          <span class="brand-name">Conformal RAG</span>
+          <span class="brand-tag">a lie detector for AI answers</span>
+        </div>
+      </div>
+
+      <div class="rail-formula">
+        <span class="rail-formula-math">E[P(approved &amp; wrong)] &le; &alpha;</span>
+        <span class="rail-formula-note">Across many answers, the rate at which we approve one that turns out wrong is at most &alpha;. A finite-sample statistical promise, not a guess &mdash; and only once you've taught it.</span>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button class="nav-btn active" data-view="check"><span class="nav-num">01</span>Check an Answer</button>
+        <button class="nav-btn" data-view="teach"><span class="nav-num">02</span>Teach It</button>
+        <button class="nav-btn" data-view="status"><span class="nav-num">03</span>Live Status</button>
+        <button class="nav-btn" data-view="topics"><span class="nav-num">04</span>Topics</button>
+      </nav>
+
+      <div class="rail-foot">
+        <span>conformal rag</span>
+        <span>a final-year project by vagi s</span>
+      </div>
+    </aside>
+
+    <div class="console">
+      <main>
+
+        <!-- ============ CHECK AN ANSWER ============ -->
+        <section class="view active" id="view-check">
+          <div class="view-head">
+            <div class="eyebrow">01 &mdash; the main event</div>
+            <h2>Is this AI answer trustworthy?</h2>
+            <p class="lede">Paste a question, the sources it should be based on, and the AI's answer. We'll tell you whether the answer is actually supported by the sources &mdash; and how sure we are.</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Setup</div>
+            <p class="panel-hint">How strict should we be? A lower tolerance means we reject more answers, but the ones we approve are safer. "Auto-adjust" lets the system re-learn its standards as it sees more feedback.</p>
+            <div class="action-row">
+              <label class="field grow">
+                <span class="field-label">Error tolerance <span id="alpha-value">5%</span></span>
+                <span class="field-help">The maximum share of approved answers you'll accept being wrong</span>
+                <input type="range" id="alpha-slider" min="0.001" max="0.2" step="0.005" value="0.05" />
+              </label>
+              <label class="checkbox-field">
+                <input type="checkbox" id="online-toggle" checked />
+                <span>Auto-adjust as it learns</span>
+              </label>
+              <button class="btn" id="init-btn">Apply settings</button>
+            </div>
+            <div class="status-line" id="engine-status">loading&hellip;</div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Sources</div>
+            <p class="panel-hint">The facts the AI should stick to. Add them yourself (one fact per line), or load our example sources and we'll automatically find the relevant ones for each question.</p>
+            <div class="btn-row">
+              <button class="btn" id="load-samples-btn">Load example sources</button>
+              <button class="btn" id="index-btn">Save sources</button>
+              <span class="status-line inline" id="index-status">no sources saved yet</span>
+            </div>
+            <textarea id="docs-input" rows="5" placeholder="One fact per line, e.g.&#10;The capital of France is Paris.&#10;Python was created by Guido van Rossum in 1991."></textarea>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">The answer to check</div>
+            <label class="field">
+              <span class="field-label">The question someone asked</span>
+              <input type="text" id="query-input" placeholder="e.g. What is the capital of France?" />
+            </label>
+            <label class="field">
+              <span class="field-label">The sources for this question</span>
+              <span class="field-help">Optional &mdash; leave empty and we'll pick the best saved sources automatically</span>
+              <textarea id="context-input" rows="3" placeholder="Paste specific sources here, or leave empty"></textarea>
+            </label>
+            <label class="field">
+              <span class="field-label">The AI's answer</span>
+              <textarea id="response-input" rows="3" placeholder="Paste the answer you want us to check"></textarea>
+            </label>
+            <div class="action-row">
+              <label class="checkbox-field">
+                <input type="checkbox" id="auto-retrieve" checked />
+                <span>Find relevant sources automatically</span>
+              </label>
+              <button class="btn primary" id="predict-btn">Check this answer</button>
+            </div>
+
+            <div id="predict-result" class="hidden">
+              <div class="verdict" id="verdict-card"></div>
+
+              <div class="dial-wrap" id="dial-block">
+                <div class="dial">
+                  <svg viewBox="0 0 200 118" aria-hidden="true">
+                    <path class="dial-track" d="M 18 108 A 82 82 0 0 1 182 108" />
+                    <path class="dial-arc" id="dial-arc" d="M 18 108 A 82 82 0 0 1 182 108" />
+                    <line class="dial-tick" id="dial-tick" x1="100" y1="16" x2="100" y2="30" />
+                  </svg>
+                  <div class="dial-readout">
+                    <span class="dial-value" id="dial-value">&mdash;</span>
+                    <span class="dial-unit">support</span>
+                  </div>
+                </div>
+                <div class="dial-legend">
+                  <span>contradicts</span>
+                  <span class="dial-legend-threshold">&#9650; threshold</span>
+                  <span>fully supported</span>
+                </div>
+                <p class="dial-caption" id="dial-caption"></p>
+              </div>
+
+              <div class="data-panel" id="how-decided"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ TEACH IT ============ -->
+        <section class="view" id="view-teach">
+          <div class="view-head">
+            <div class="eyebrow">02 &mdash; training</div>
+            <h2>Teach it what &ldquo;trustworthy&rdquo; means.</h2>
+            <p class="lede">The system starts with a rough guess about where to draw the line. Show it real examples &mdash; answers that were right and answers that were made up &mdash; and it learns the exact line for your data. More examples, sharper line.</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Your examples</div>
+            <p class="panel-hint">Fill in the four boxes below &mdash; one example per line, same number of lines in each box. In the last box, mark each answer: <code>0</code> if it was correct, <code>1</code> if it was a hallucination (made up).</p>
+            <div class="btn-row">
+              <button class="btn" id="fill-example-btn">Fill with a worked example</button>
+            </div>
+            <div class="grid-2">
+              <label class="field">
+                <span class="field-label">Questions</span>
+                <textarea id="cal-queries" rows="6" placeholder="one question per line"></textarea>
+              </label>
+              <label class="field">
+                <span class="field-label">Sources that were available</span>
+                <textarea id="cal-contexts" rows="6" placeholder="one source per line"></textarea>
+              </label>
+              <label class="field">
+                <span class="field-label">The AI's answers</span>
+                <textarea id="cal-responses" rows="6" placeholder="one answer per line"></textarea>
+              </label>
+              <label class="field">
+                <span class="field-label">Was it right?</span>
+                <textarea id="cal-labels" rows="6" placeholder="0 = correct, 1 = made up"></textarea>
+              </label>
+            </div>
+            <div class="action-row">
+              <button class="btn primary" id="calibrate-btn">Teach it</button>
+              <span class="status-line inline" id="calibrate-status"></span>
+            </div>
+            <div class="data-panel hidden" id="calibrate-result"></div>
+          </div>
+        </section>
+
+        <!-- ============ LIVE STATUS ============ -->
+        <section class="view" id="view-status">
+          <div class="view-head">
+            <div class="eyebrow">03 &mdash; monitoring</div>
+            <h2>How it's doing right now.</h2>
+            <p class="lede">A live report card. The numbers update as the system checks answers and receives feedback. The charts show whether it's keeping its promise &mdash; staying below your error tolerance.</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Report card <span class="pulse-dot"></span></div>
+            <div class="stat-grid">
+              <div class="stat-card">
+                <div class="stat-value" id="dash-total">0</div>
+                <div class="stat-label">Answers checked</div>
+                <div class="stat-meaning">Every answer the system has looked at so far.</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="dash-fdr">0%</div>
+                <div class="stat-label">False alarms</div>
+                <div class="stat-meaning">Of the answers it flagged as risky, how many were actually fine. Lower is better.</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="dash-coverage">100%</div>
+                <div class="stat-label">Answers it vouched for</div>
+                <div class="stat-meaning">The share of answers it approved instead of saying &ldquo;not sure&rdquo;.</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="dash-abstention">0%</div>
+                <div class="stat-label">Times it said &ldquo;not sure&rdquo;</div>
+                <div class="stat-meaning">Refusing to guess is a feature &mdash; it keeps the guarantee honest.</div>
+              </div>
+            </div>
+
+            <div class="chart-grid">
+              <div class="chart-box">
+                <div class="chart-title">False alarms over time</div>
+                <div class="chart-caption">Should stay below the dashed line &mdash; that's your error tolerance. If it crosses, the system is breaking its promise.</div>
+                <div class="chart" id="chart-fdr"></div>
+              </div>
+              <div class="chart-box">
+                <div class="chart-title">Answers it vouched for, over time</div>
+                <div class="chart-caption">How often it approves an answer. A sudden drop usually means the data changed and it's playing it safe.</div>
+                <div class="chart" id="chart-coverage"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Auto-adjust (adaptive threshold)</div>
+            <p class="panel-hint">When auto-adjust is on, the system nudges its own standards after every piece of feedback, so it keeps its promise even as the data changes.</p>
+            <div class="data-panel" id="aci-panel">not enabled</div>
+            <div class="chart-box wide" style="margin-top:16px">
+              <div class="chart-title">Where it draws the line</div>
+              <div class="chart-caption">The system's current standard. Answers scoring below this line get a &ldquo;not sure&rdquo;. Watch it move as feedback comes in.</div>
+              <div class="chart" id="chart-threshold"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Teaching status</div>
+            <div class="data-panel" id="dash-calibration">It hasn't been taught yet &mdash; it's using a rough default standard. Visit &ldquo;Teach It&rdquo; to sharpen it.</div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Report what actually happened</div>
+            <p class="panel-hint">The system can't see the truth on its own. When you find out an answer was right or wrong, tell it here &mdash; that feedback is what keeps the numbers above honest.</p>
+            <label class="field">
+              <span class="field-label">The question</span>
+              <input type="text" id="mon-query" placeholder="What was asked?" />
+            </label>
+            <label class="field">
+              <span class="field-label">The sources it had</span>
+              <textarea id="mon-context" rows="2" placeholder="The sources the answer was based on"></textarea>
+            </label>
+            <label class="field">
+              <span class="field-label">The answer that was given</span>
+              <textarea id="mon-response" rows="2" placeholder="The answer that went out"></textarea>
+            </label>
+            <div class="action-row">
+              <label class="checkbox-field">
+                <input type="checkbox" id="mon-hallucination" />
+                <span>It turned out to be made up</span>
+              </label>
+              <button class="btn primary" id="record-btn">Report it</button>
+              <span class="status-line inline" id="record-status"></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ TOPICS ============ -->
+        <section class="view" id="view-topics">
+          <div class="view-head">
+            <div class="eyebrow">04 &mdash; per-topic rules</div>
+            <h2>Different rules for different topics.</h2>
+            <p class="lede">A wrong answer about a movie is annoying. A wrong answer about a medication dose is dangerous. Here you can hold each topic to its own standard &mdash; stricter for medicine and money, looser for everyday questions.</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Add a topic</div>
+            <div class="action-row">
+              <label class="field grow">
+                <span class="field-label">Topic name</span>
+                <input type="text" id="domain-name" placeholder="e.g. medicine, finance, legal" />
+              </label>
+              <label class="field">
+                <span class="field-label">Error tolerance</span>
+                <span class="field-help">Lower = stricter</span>
+                <input type="number" id="domain-alpha" min="0.001" max="0.2" step="0.001" value="0.01" />
+              </label>
+              <button class="btn" id="register-domain-btn">Add topic</button>
+            </div>
+            <div class="status-line" id="domain-register-status"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Your topics</div>
+            <div id="domain-cards" class="domain-cards">
+              <p class="panel-hint" style="margin:0">No topics yet. Add one above &mdash; try &ldquo;medicine&rdquo; with a tolerance of 0.001 (one mistake per thousand answers).</p>
+            </div>
+          </div>
+
+          <div class="panel hidden" id="domain-calibrate-panel">
+            <div class="panel-title">Teach the <span id="domain-calibrate-name"></span> topic</div>
+            <p class="panel-hint">One example per line, with the four parts separated by <code>|</code> &mdash; like this:<br /><code>question | sources | answer | 0</code> (use <code>0</code> for correct, <code>1</code> for made up).</p>
+            <textarea id="domain-cal-rows" rows="5" placeholder="what is revenue? | revenue is income from sales | Revenue is income from sales. | 0"></textarea>
+            <div class="action-row" style="margin-top:16px">
+              <button class="btn primary" id="domain-calibrate-btn">Teach this topic</button>
+              <span class="status-line inline" id="domain-calibrate-status"></span>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <footer class="footer">
+        <span>deberta-v3 nli &middot; litellm &middot; fastapi</span>
+        <span>conformal prediction with fdr control</span>
+      </footer>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

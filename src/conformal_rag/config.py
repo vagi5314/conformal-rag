@@ -11,6 +11,16 @@ import os
 from dataclasses import dataclass, field
 from typing import List
 
+# Secrets and provider keys (GROQ_API_KEY, GEMINI_API_KEY, ...) are read from
+# the process environment by litellm. Load a local, git-ignored .env first so
+# `uvicorn ...` picks them up without any shell setup.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:  # pragma: no cover - dotenv is optional
+    pass
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
@@ -35,13 +45,21 @@ class Settings:
     # Scoring
     nli_confidence_threshold: float = 0.7
     scoring_weights: tuple[float, float] = (0.6, 0.4)
+    # NLI model preset: "small" (accurate enough for clear cases, ~0.15s per
+    # predict on CPU) or "large" (~5s per predict on CPU). A raw HuggingFace
+    # model id is also accepted. Env: CONFORMAL_RAG_NLI_MODEL.
+    nli_model: str = "small"
+    # LLM-judge escalation on uncertain answers. Needs a provider API key;
+    # with no key the judge is skipped and the NLI score is used alone.
+    use_llm_judge: bool = True
 
     # LLM
     llm_temperature: float = 0.0
     llm_max_tokens: int = 10
     llm_timeout: float = 30.0
     llm_fallback_chain: List[str] = field(default_factory=lambda: [
-        "groq/llama-3.3-70b-versatile",
+        "groq/qwen/qwen3.8-27b",
+        "groq/openai/gpt-oss-120b",
         "openrouter/meta-llama/llama-3.1-8b-instruct:free",
         "together_ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         "gemini/gemini-2.5-flash",
@@ -110,6 +128,15 @@ class Settings:
         self.api_host = os.environ.get("CONFORMAL_RAG_API_HOST", self.api_host)
         self.api_port = int(os.environ.get("CONFORMAL_RAG_API_PORT", str(self.api_port)))
         self.default_alpha = float(os.environ.get("CONFORMAL_RAG_ALPHA", str(self.default_alpha)))
+
+        self.nli_model = os.environ.get("CONFORMAL_RAG_NLI_MODEL", self.nli_model)
+        self.use_llm_judge = _env_bool("CONFORMAL_RAG_USE_LLM_JUDGE", self.use_llm_judge)
+
+        # Provider model ids age fast (Groq retired the Llama family). Override
+        # the whole chain with a comma-separated list of litellm model ids.
+        models_raw = os.environ.get("CONFORMAL_RAG_LLM_MODELS", "")
+        if models_raw.strip():
+            self.llm_fallback_chain = [m.strip() for m in models_raw.split(",") if m.strip()]
 
         self.api_key = os.environ.get("CONFORMAL_RAG_API_KEY", self.api_key)
         self.rate_limit_per_minute = int(

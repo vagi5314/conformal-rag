@@ -71,6 +71,61 @@ class ConformalRAGEngine:
     def calibrated(self) -> bool:
         return self._threshold is not None
 
+    def recalibrate_from_stored(self, alpha: float) -> None:
+        """Recompute the CRC threshold for a new alpha from stored scores.
+
+        Changing alpha does not require re-scoring: the calibration scores and
+        labels are already in memory, so only the rank cutoff moves. This makes
+        the tolerance control live instead of destroying the calibration.
+        """
+        if not self._calibration_scores:
+            return
+        self.alpha = clamp_alpha(alpha)
+        self._threshold = self._crc_threshold(
+            self._calibration_scores, self._calibration_labels, self.alpha
+        )
+        self._confidence_interval = self._conformal_lower_bound(
+            self._calibration_scores, self.alpha
+        )
+
+    def calibration_stats(self) -> Optional[CalibrationStats]:
+        """Rebuild CalibrationStats from stored calibration data.
+
+        Used after `load_state()` restores a calibration from disk, where the
+        original return value is long gone but the threshold, scores and labels
+        are all still available.
+        """
+        if not self.calibrated or not self._calibration_scores:
+            return None
+        scores = self._calibration_scores
+        labels = self._calibration_labels
+        approved_idx = [i for i, s in enumerate(scores) if s > self._threshold]
+        approved_hallucinations = sum(1 for i in approved_idx if labels[i] == 1)
+        withheld_idx = [i for i in range(len(scores)) if i not in set(approved_idx)]
+        return CalibrationStats(
+            domain=self._domain,
+            alpha=self.alpha,
+            n_samples=len(labels),
+            n_hallucinations=sum(labels),
+            threshold=self._threshold,
+            estimated_fdr=(
+                approved_hallucinations / len(approved_idx) if approved_idx else 0.0
+            ),
+            approved_wrong_rate=(
+                approved_hallucinations / len(scores) if scores else 0.0
+            ),
+            false_alarm_rate=(
+                sum(1 for i in withheld_idx if labels[i] == 0) / len(withheld_idx)
+                if withheld_idx
+                else 0.0
+            ),
+            coverage=len(approved_idx) / len(scores) if scores else 1.0,
+            min_samples_required=int(np.ceil(1.0 / self.alpha)) - 1,
+            certifiable=self._threshold < _ABSTAIN_ON_EVERYTHING,
+            weights=self.weights,
+            warnings=[],
+        )
+
     def calibrate(
         self,
         queries: List[str],
@@ -124,6 +179,16 @@ class ConformalRAGEngine:
             approved_hallucinations / len(approved_idx) if approved_idx else 0.0
         )
         coverage = len(approved_idx) / len(scores) if scores else 1.0
+        # The guarantee quantity: approved AND wrong, over all samples.
+        approved_wrong_rate = (
+            approved_hallucinations / len(scores) if scores else 0.0
+        )
+        withheld_idx = [i for i in range(len(scores)) if i not in set(approved_idx)]
+        false_alarm_rate = (
+            sum(1 for i in withheld_idx if labels[i] == 0) / len(withheld_idx)
+            if withheld_idx
+            else 0.0
+        )
 
         return CalibrationStats(
             domain=domain,
@@ -132,7 +197,11 @@ class ConformalRAGEngine:
             n_hallucinations=sum(labels),
             threshold=self._threshold,
             estimated_fdr=estimated_fdr,
+            approved_wrong_rate=approved_wrong_rate,
+            false_alarm_rate=false_alarm_rate,
             coverage=coverage,
+            min_samples_required=int(np.ceil(1.0 / self.alpha)) - 1,
+            certifiable=self._threshold < _ABSTAIN_ON_EVERYTHING,
             weights=self.weights,
             warnings=warnings,
         )
@@ -216,6 +285,8 @@ class ConformalRAGEngine:
             risk_bound=risk_bound,
             abstained=abstained,
             calibrated=self.calibrated,
+            threshold=threshold,
+            alpha=self.alpha,
             confidence_interval=self._confidence_interval,
             scoring_breakdown=breakdown,
             domain=domain or self._domain,
@@ -280,6 +351,17 @@ class ConformalRAGEngine:
             ci = state.get("confidence_interval", [0.0, 1.0])
             self._confidence_interval = (float(ci[0]), float(ci[1]))
             self._domain = state.get("domain", self._domain)
+            # alpha must travel with the state: per-domain tolerances differ
+            # (medicine 0.05 vs finance 0.15), so a restored engine that kept
+            # the constructor default would silently re-threshold on the next
+            # calibration and lose the contrast the demo depends on.
+            stored_alpha = state.get("alpha")
+            if stored_alpha is not None:
+                self.alpha = clamp_alpha(float(stored_alpha))
+                if self.fdr_monitor is not None:
+                    self.fdr_monitor.alpha = self.alpha
+                if self.online is not None:
+                    self.online.alpha = self.alpha
             logger.info(
                 "Loaded calibration state from %s (threshold=%s, n=%d)",
                 path, self._threshold, len(self._calibration_scores),
