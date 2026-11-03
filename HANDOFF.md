@@ -29,7 +29,7 @@ Pick up the conformal-rag project: finalize README, refresh HANDOFF.md, restart 
 1. Refresh README with upload flow, small NLI default, `CONFORMAL_RAG_NLI_MODEL`, `CONFORMAL_RAG_LLM_MODELS`, `CONFORMAL_RAG_USE_LLM_JUDGE` env vars.
 2. Refresh HANDOFF.md with current state (upload, windowed scoring, nli-small default).
 3. ~~Start API server on `:8000` for browser UI testing.~~ — running, see above.
-4. Commit + push `dev` branch to `origin https://github.com/vagi5314/conformal-rag.git`. **Not done — pending authorisation.**
+4. ~~Commit + push `dev` branch~~ — **done 2026-11-04**, `5741c85` pushed to `origin/dev` (https://github.com/vagi5314/conformal-rag.git).
 5. Run `graphify update .` — `graphify-out/` exists.
 
 ## Restarting the server
