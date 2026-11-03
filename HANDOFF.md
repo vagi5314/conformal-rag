@@ -1,7 +1,7 @@
 # Handoff: conformal-rag project – pick up next session
 
 ## Goal of next session
-Pick up the conformal-rag project: finalize README, refresh HANDOFF.md, restart API server, commit + push to GitHub, run graphify update. The core code is verified (307 passed / 10 skipped, ruff clean, node --check clean). PDF Q&A is verified end to end on two bundled sample PDFs plus a third unrelated paper.
+The library, web console and PDF Q&A are all verified and pushed to `origin/dev`. Remaining roadmap work is in `AGENTS.md` (HuggingFace Space, Chrome extension, LangChain wrapper, benchmark run, publication). Read "How to run the whole project" below to start it from a clean machine.
 
 ## State of play
 - 307 core tests passing (10 skipped). `ruff check src/ tests/` clean.
@@ -28,18 +28,80 @@ Pick up the conformal-rag project: finalize README, refresh HANDOFF.md, restart 
 ## Open decisions
 1. Refresh README with upload flow, small NLI default, `CONFORMAL_RAG_NLI_MODEL`, `CONFORMAL_RAG_LLM_MODELS`, `CONFORMAL_RAG_USE_LLM_JUDGE` env vars.
 2. Refresh HANDOFF.md with current state (upload, windowed scoring, nli-small default).
-3. ~~Start API server on `:8000` for browser UI testing.~~ — running, see above.
+3. ~~Start API server on `:8000` for browser UI testing.~~ — running, see "How to run the whole project".
 4. ~~Commit + push `dev` branch~~ — **done 2026-11-04**, `5741c85` pushed to `origin/dev` (https://github.com/vagi5314/conformal-rag.git).
-5. Run `graphify update .` — `graphify-out/` exists.
+5. ~~Run `graphify update .`~~ — done 2026-11-04 (2477 nodes, 4793 edges).
 
-## Restarting the server
+## How to run the whole project
+
+### 0. What you need
+- Python 3.10+ (this machine uses 3.12) and Git
+- ~2 GB free disk: the first start downloads the e5 embedding model and the DeBERTa NLI model
+- One free LLM provider key (Groq recommended) — only needed for the LLM answer/judge paths, not for `/predict`
+
+### 1. One-time setup
 ```bash
-# equivalent of run.cmd without the auto-browser launch
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -e ".[dev]"   # Windows
+# source .venv/bin/activate && pip install -e ".[dev]"  # Linux/macOS
+cp .env.example .env          # then set GROQ_API_KEY=... (or OPENROUTER/TOGETHER/GEMINI)
+```
+`.env` is git-ignored. Without a key the server still starts: `/predict`, `/calibrate`, `/domains` work, `/ask` falls back to extractive answers and the judge is skipped.
+
+### 2. Seed the demo state (once, ~1 minute)
+```bash
+PYTHONPATH=src .venv/Scripts/python.exe scripts/seed_demo.py
+```
+Indexes the demo corpus and calibrates the main engine plus the per-domain thresholds into `.state/`, so the console opens already calibrated. Re-run with `--force` after changing the corpus. `run.cmd` does this automatically when `.state/engine_state.json` is missing.
+
+### 3. Start it
+
+**Windows — one command:** double-click `run.cmd` (seeds if needed, starts the API, opens the browser).
+
+**Any shell:**
+```bash
 PYTHONPATH=src CONFORMAL_RAG_NLI_MODEL=small CONFORMAL_RAG_ALPHA=0.15 \
   CONFORMAL_RAG_STATE_DIR=.state \
   .venv/Scripts/python.exe -m uvicorn conformal_rag.api:create_app --factory --host 127.0.0.1 --port 8000
 ```
-Open `http://127.0.0.1:8000`. Delete `.state/` to force re-seeding (or run `scripts/seed_demo.py --force`).
+The frontend is served by the same process — open **http://127.0.0.1:8000** (nothing else to start; no npm, no build step). Interactive API docs: `/docs`.
+
+### 4. Try it
+- **Check an Answer** — paste a query/context/response, get the conformal verdict, or upload a PDF and ask questions. Two ready PDFs plus a verified question list: `sample_docs/README.md`
+- **Live Status** — FDR monitor, drift, ACI state
+- **Topics** — per-domain calibration, alpha per domain
+- **Method** — how the CRC threshold is computed
+
+### 5. Confirm it is healthy
+```bash
+curl -s http://127.0.0.1:8000/health          # {"status":"ok",...}
+.venv/Scripts/python.exe -m pytest tests -q   # 307 passed, 10 skipped
+.venv/Scripts/python.exe -m ruff check src tests
+```
+Stop the server before running the suite: the resident models plus the test models exceed this machine's page file (`OSError 1455` / `access violation`).
+
+### Optional: Qdrant + Redis (production-style backend)
+```bash
+docker compose up -d      # qdrant v1.18.0, redis, postgres
+set CONFORMAL_RAG_QDRANT_URL=http://localhost:6333
+set CONFORMAL_RAG_REDIS_URL=redis://localhost:6379
+```
+With `CONFORMAL_RAG_QDRANT_URL` set, `/index` and `/retrieve` use Qdrant (503 if it is unreachable); with `CONFORMAL_RAG_REDIS_URL` set, rate limiting is Redis-backed. Neither is needed for the demo — the in-memory retriever and limiter are the default.
+
+### Demo configuration used everywhere in this handoff
+| Variable | Value | Why |
+| --- | --- | --- |
+| `CONFORMAL_RAG_NLI_MODEL` | `small` | ~0.15 s/predict on CPU instead of ~5 s |
+| `CONFORMAL_RAG_ALPHA` | `0.15` | demo tolerance; the CRC threshold is recomputed from it |
+| `CONFORMAL_RAG_STATE_DIR` | `.state` | persisted calibration + index, restored at startup |
+| `CONFORMAL_RAG_USE_LLM_JUDGE` | `1` (default) | NLI + LLM judge hybrid for the final score |
+
+### Troubleshooting
+- **Port 8000 busy / server will not die:** kill the *python child*, not the wrapper. `tasklist | grep python` and kill the one holding ~600 MB; the wrapper PID alone leaves uvicorn running.
+- **`OSError 1455` or `Windows fatal exception: access violation` in tests:** page file exhausted — stop the server first (above).
+- **First start seems to hang:** it is downloading the embedding/NLI models; wait for `/health` to return 200 (about a minute once, instant afterwards).
+- **Uploaded PDFs vanished:** uploads live in memory only; re-upload after a restart.
+- **`/ask` declines an on-topic question:** rephrase closer to the document's wording — provider fallback makes drafting non-deterministic run to run.
 
 ## Artifacts (references, do not paste)
 - `src/conformal_rag/api.py` — `/ask` (general default, retry `k=10`, closest passage), `/documents/upload` (multipart, 8 cap, 10 MB), `/predict` (judge escalation, NLI+judge final score), `/calibrate`, `/domains`.
